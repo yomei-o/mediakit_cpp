@@ -16,10 +16,10 @@ testdata/  chicago.h264 + chicago.aac（1280x720 30fps、415 秒）
 
 | | Windows | Linux | macOS | Android | iOS |
 |---|---|---|---|---|---|
-| io（カメラ・マイク・スピーカー） | ✓ Media Foundation + WASAPI | V4L2 + ALSA（ビルドのみ） | – | – | – |
-| codec | ✓ | ✓（WSL で codec_test 通過） | – | – | – |
-| ui | ✓ Win32 + GDI | X11（ビルドのみ） | – | – | – |
-| pipeline | ✓ | ✓（疑似デバイスで録画→再生通過） | – | – | – |
+| io（カメラ・マイク・スピーカー） | ✓ Media Foundation + WASAPI | V4L2 + ALSA（ビルドのみ） | ✓ AVFoundation + AudioQueue | – | – |
+| codec | ✓ | ✓（WSL で codec_test 通過） | ✓ VideoToolbox | – | – |
+| ui | ✓ Win32 + GDI | X11（ビルドのみ） | ✓ AppKit | – | – |
+| pipeline | ✓ | ✓（疑似デバイスで録画→再生通過） | ✓ | – | – |
 
 ## 使い方
 
@@ -61,8 +61,8 @@ mk::FrameConverter conv;  conv.convert(frame, bgra, mk::PixelFormat::BGRA, 640, 
 
 | | HW | SW |
 |---|---|---|
-| H.264 エンコード | Windows: Media Foundation（GPU の MFT） | Microsoft の SW MFT、または x264（`-DMK_WITH_X264=ON`） |
-| H.264 デコード | Windows: D3D11VA（`VideoDecoder::open(true)`） | FFmpeg |
+| H.264 エンコード | Windows: Media Foundation（GPU の MFT）／macOS: VideoToolbox | Microsoft の SW MFT、または x264（`-DMK_WITH_X264=ON`） |
+| H.264 デコード | Windows: D3D11VA／macOS: VideoToolbox（`VideoDecoder::open(true)`） | FFmpeg |
 
 - `VideoEncoderConfig::hardware`（既定 true）。HW が無いマシンでは自動で SW になる。`encoder = "libx264"` のように名前で指定もできる。
 - **x264 は GPL**。`MK_WITH_X264=ON` でビルドした exe は GPL になる。既定（OFF）は LGPL の部品だけ。
@@ -108,6 +108,19 @@ Linux（`libx11-dev libasound2-dev` が必要。OS の H.264 エンコーダは�
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DMK_WITH_X264=ON
 cmake --build build -j
 ```
+
+macOS（Xcode のコマンドラインツールだけで足りる）：
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+build/codec_test && build/codec_test --hwdec
+build/mk_record a.mp4 3 --test && build/player_test a.mp4
+```
+
+カメラとマイクは初回に許可を聞かれる。バンドルの無いコマンドラインの実行ファイルでも聞けるよう、
+`tools/mac_info.plist`（`NSCameraUsageDescription` など）を `-sectcreate __TEXT __info_plist` で
+実行ファイルに埋め込んである。これが無いと、カメラに触れた瞬間に OS がプロセスを殺す。
 
 ## ライセンス
 

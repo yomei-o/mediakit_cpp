@@ -14,7 +14,7 @@ Safie への出力は公開できないので入れない。`PacketSink` を実�
 - MJPEG しか出さないカメラ（Linux の UVC など）は io が MJPEG のまま渡し、codec の FrameConverter が展開する
   （io を codec に依存させないため）。
 - 時刻は全部 `mk::now_us()`（steady_clock）。WASAPI の QPC 時刻、MF のデバイス時刻、V4L2 の MONOTONIC はここに換算。
-- エンコーダは OS のもの（Windows: h264_mf、Android: h264_mediacodec、Apple: h264_videotoolbox、
+- エンコーダは OS のもの（Windows: h264_mf、macOS/iOS: h264_videotoolbox、Android: h264_mediacodec（未）、
   Linux: h264_vaapi / h264_v4l2m2m（未ビルド））、SW は x264（GPL、任意）か OpenH264（未）。
 - 各キーフレームの前に SPS/PPS を必ず付ける（ストリームの途中からでも、PacketSink の先でもデコードできるように）。
 - AAC エンコーダは入力の時刻に穴があったら無音で埋める（USB マイクの取りこぼしで音の時間軸が縮まないように）。
@@ -34,6 +34,17 @@ Linux（WSL1、aarch64、g++ 9.4）
   WSL1 には /dev/video も音のデバイスも X も無い（Parallels 上の ARM Windows では WSL2 が使えない：
   `HCS_E_HYPERV_NOT_INSTALLED`）。実機での確認は別の Linux マシンで。
 
+macOS（Mac mini、Apple Silicon、macOS 15.7、Xcode 26.3）
+- `codec_test`：VideoToolbox エンコード PSNR 49.9 dB、HW デコード（videotoolbox）も同じ。x264 は 46.1 dB。
+  AAC は 440 Hz の成分比 1.000、RGB 変換の平均差 0.42（x264 では 0.02）。
+- 実カメラ（USB 2.0 Camera）の全モードを要求どおりに開けた：320x240/640x480/800x600@20/1280x720/
+  1920x1080 とも実測 29.5〜29.8 fps、720p YUY2 はカメラ側の上限どおり 9.8 fps。
+- そのマイクで 4 秒に 192000 サンプル（48 kHz ちょうど、落ちゼロ）。
+- 録画→再生：182 フレーム、落ちゼロ、A/V は一定の 0.29 s 遅れ（音の立ち上がり分）でずれていかない。
+  `--input` でのファイル入力、`--h264` の PacketSink、mk_mux もすべて通過。
+- ウィンドウは AppKit。ボタン・ステータス・映像の描画をアプリ自身で PNG に焼いて確認した
+  （画面収録の許可が無いと `screencapture` は壁紙しか返さないので、外からのスクショでは確認できない）。
+
 ## 落とし穴
 
 - `VideoFrame` は data[] が自分の buffer を指す。コピー・ムーブでポインタを付け替える。
@@ -45,11 +56,26 @@ Linux（WSL1、aarch64、g++ 9.4）
   `compat/win32` は Windows のときだけ include パスに入れる（Linux では system の stdatomic.h を使う）。
 - ビルド機へは tar で送る。展開時は `tar xzmf`（時計がずれていて ninja が再ビルドしないことがあった）。
   cmd は引数を `=` で切るので、cmake のオプションは環境変数 MKOPTS で渡す（`tools/build_win.bat`）。
+- macOS：`AVCaptureSession` は自分のプリセットをデバイスに当てるので、`activeFormat` は
+  **`startRunning` の後に**設定しないと捨てられる（このカメラは 1920x1080 の 5 fps に落ちていた）。
+  一度効けば stop / start しても残るが、セッションは open() から close() まで回しっぱなしにして、
+  start() / stop() は配送の開閉だけにしてある。
+- macOS：古い DAL 経路のカメラは `activeVideoMinFrameDuration` に
+  **レンジが持っている CMTime そのもの**しか受け付けず、等価な有理数（1/30）でも NSException を投げる。
+  投げると握りつぶしてレンジの値で入れ直す。`activeVideoMaxFrameDuration` も同じ値にしないと、
+  自動露出が暗いところで勝手にフレームレートを落とす。
+- macOS：カメラ・マイクの用途説明が無いとプロセスごと殺される。バンドルの無い実行ファイルには
+  `-sectcreate __TEXT __info_plist` で `tools/mac_info.plist` を埋め込む。
+- 平坦化で `libavutil/time.h` は `time_avutil.h` になったのに 16 個のファイルが `#include "time.h"` のままで、
+  システムのヘッダを拾っていた。gcc は暗黙宣言の警告で通してしまい、`av_gettime()` の int64_t が
+  int に切り詰められていた（clang は拒否する）。全部直した。
 
 ## 次にやること
 
-1. Linux 実機：V4L2（YUYV / MJPEG）、ALSA、X11 窓の確認（家の環境で）。Linux の HW エンコード（VA-API）
-2. macOS / iOS（AVFoundation + VideoToolbox、ui は AppKit / UIKit）— Mac 側で
-3. Android（NDK Camera2 + AAudio + MediaCodec、ui は SurfaceView/ANativeWindow）
+1. Android（NDK Camera2 + AAudio + MediaCodec、ui は SurfaceView/ANativeWindow）
+2. Linux 実機：V4L2（YUYV / MJPEG）、ALSA、X11 窓の確認（家の環境で）。Linux の HW エンコード（VA-API）
+3. iOS（io は macOS 版とほぼ同じ AVFoundation + AudioQueue のはず、ui だけ UIKit）
 4. FFmpeg の設定ヘッダ（`ffmpeg_gen/config_*.h`）を OS ごとに見直す（今は Windows x64 用 + `#ifdef` 分岐）
 5. OpenH264（BSD）の SW エンコーダを LGPL ビルド用に
+6. `testdata/chicago.h264` が `.gitignore` の `*.h264` に引っかかって repo に入っていない
+   （README と mk_mux の例はこれを指している）。`!testdata/*.h264` を足すか、例を直すか

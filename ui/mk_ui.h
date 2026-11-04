@@ -1,5 +1,6 @@
 // mediakit ui layer: a window that shows video and has a row of buttons and a status line.
-// Per OS under ui/<os>/ (Windows: Win32 + GDI). Frames are BGRA (convert with mk::FrameConverter).
+// Per OS under ui/<os>/ (Windows: Win32 + GDI, Linux: Xlib, macOS: AppKit).
+// Frames are BGRA (convert with mk::FrameConverter). create() and run() belong to the main thread.
 #pragma once
 #include <functional>
 #include <memory>

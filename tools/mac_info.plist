@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Linked into every mediakit program with -sectcreate __TEXT __info_plist: without the usage
+     strings macOS kills the process the moment it touches the camera or the microphone, and a
+     plain command line binary has no bundle to put them in. -->
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key>
+  <string>org.mediakit.tools</string>
+  <key>CFBundleName</key>
+  <string>mediakit</string>
+  <key>NSCameraUsageDescription</key>
+  <string>カメラの映像を取り込んで表示・録画します。</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>マイクの音声を取り込んで録音します。</string>
+  <key>NSCameraUseContinuityCameraDeviceType</key>
+  <true/>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+</dict>
+</plist>

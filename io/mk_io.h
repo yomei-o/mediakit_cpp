@@ -1,9 +1,9 @@
 // mediakit io layer: camera and microphone capture, speaker output.
 // One API; each OS has its own implementation under io/<os>/:
 //   Windows  Media Foundation (camera) + WASAPI (microphone, speaker)
-//   Linux    V4L2 + ALSA                       (todo)
+//   Linux    V4L2 + ALSA
+//   macOS/iOS AVFoundation + AudioQueue
 //   Android  NDK Camera2 + AAudio              (todo)
-//   macOS/iOS AVFoundation + AudioQueue        (todo)
 // Callbacks run on a capture thread; copy what you need and return quickly.
 #pragma once
 #include <functional>
