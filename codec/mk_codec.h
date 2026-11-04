@@ -66,11 +66,14 @@ class VideoDecoder {
 public:
     VideoDecoder();
     ~VideoDecoder();
-    bool open();  // H.264, Annex-B input
-    bool decode(const Packet& pkt, std::vector<VideoFrame>& out);  // out: I420 (or NV12)
+    // H.264, Annex-B input. hardware: use the GPU decoder (Windows D3D11VA, Apple VideoToolbox,
+    // Android MediaCodec, Linux VA-API) when there is one; otherwise it silently decodes in software.
+    bool open(bool hardware = false);
+    bool decode(const Packet& pkt, std::vector<VideoFrame>& out);  // out: I420 (software) or NV12 (hardware)
     bool flush(std::vector<VideoFrame>& out);
     void close();
     const std::string& error() const;
+    std::string name() const;  // "software" or the hardware API in use ("d3d11va", ...)
     struct Impl;
 private:
     std::unique_ptr<Impl> p_;

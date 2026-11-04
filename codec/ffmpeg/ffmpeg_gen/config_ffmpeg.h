@@ -724,7 +724,11 @@
 
 //#define CONFIG_D3D11VA 1
 //#define CONFIG_DXVA2 1
+#ifdef _WIN32  /* mediakit: H.264 hardware decoding through D3D11VA */
+#define CONFIG_D3D11VA 1
+#else
 #define CONFIG_D3D11VA 0
+#endif
 #define CONFIG_DXVA2 0
 
 #define CONFIG_FFNVCODEC 0

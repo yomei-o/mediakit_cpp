@@ -19,10 +19,19 @@ std::vector<DeviceInfo> list_cameras();
 std::vector<DeviceInfo> list_microphones();
 std::vector<DeviceInfo> list_speakers();
 
+struct CameraMode {
+    int width = 0, height = 0;
+    double fps = 0;
+    std::string format;  // "NV12", "YUY2", "MJPG", "H264", ...
+};
+// What a camera can deliver natively (empty id = first camera).
+std::vector<CameraMode> list_camera_modes(const std::string& device_id = "");
+
 struct CameraConfig {
     std::string device_id;  // empty = first camera
     int width = 1280, height = 720;
     int fps = 30;           // the nearest mode the camera has is used
+    std::string format;     // prefer this native format ("YUY2", "MJPG", "NV12"); empty = any
 };
 
 class Camera {
@@ -37,6 +46,7 @@ public:
     int width() const;
     int height() const;
     double fps() const;
+    std::string format() const;  // native format in use
     std::string name() const;
     const std::string& error() const;
     struct Impl;

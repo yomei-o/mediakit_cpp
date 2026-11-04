@@ -43,7 +43,7 @@ class FileSource {
 public:
     FileSource();
     ~FileSource();
-    bool open(const std::string& path, bool loop = false);
+    bool open(const std::string& path, bool loop = false, bool hardware_decode = true);
     const MediaInfo& info() const;
     // Timestamps are on the mk::now_us() clock, as from a live device.
     bool start(std::function<void(const VideoFrame&)> on_video, std::function<void(const AudioFrame&)> on_audio);
@@ -63,6 +63,7 @@ struct RecorderConfig {
     MicrophoneConfig microphone;
     std::string input_file;
     bool input_loop = true;
+    bool input_hardware_decode = true;
 
     VideoEncoderConfig video;   // width/height 0 = the input's size; fps 0 = the input's
     int audio_bitrate = 128000;
@@ -110,8 +111,10 @@ class Player {
 public:
     Player();
     ~Player();
+    // hardware_decode: GPU decoder when there is one (falls back to software by itself)
     bool open(const std::string& path, std::function<void(const VideoFrame& bgra)> on_video,
-              int out_width = 0, int out_height = 0);
+              int out_width = 0, int out_height = 0, bool hardware_decode = true);
+    std::string decoder_name() const;
     bool play();
     void pause();
     bool paused() const;

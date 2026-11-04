@@ -10,6 +10,8 @@ extern "C" {
 #include "libavformat/avformat.h"
 #include "libavutil/audio_fifo.h"
 #include "libavutil/channel_layout.h"
+#include "libavutil/hwcontext.h"
+#include "libavutil/pixdesc.h"
 #include "libavutil/imgutils.h"
 #include "libavutil/mem.h"
 #include "libavutil/opt.h"
@@ -275,6 +277,11 @@ bool VideoEncoder::open(const VideoEncoderConfig& cfg) {
     std::string errs;
     for (auto& n : names) {
         if (p_->try_open(n.c_str())) break;
+        if (n == "h264_mf" && cfg.hardware) {  // no hardware MFT on this machine: Microsoft's software one
+            p_->cfg.hardware = false;
+            if (p_->try_open(n.c_str())) break;
+            p_->cfg.hardware = true;
+        }
         if (!p_->err.empty()) errs += p_->err + "; ";
         else errs += n + ": not built in; ";
         p_->err.clear();
@@ -283,6 +290,7 @@ bool VideoEncoder::open(const VideoEncoderConfig& cfg) {
         p_->err = "no H.264 encoder could be opened (" + errs + ")";
         return false;
     }
+    p_->err.clear();
     p_->frame = av_frame_alloc();
     p_->frame->format = p_->ctx->pix_fmt;
     p_->frame->width = cfg.width;
@@ -356,6 +364,7 @@ struct AudioEncoder::Impl {
     std::string err;
     int64_t next_pts = INT64_MIN;  // in samples at cfg.sample_rate
     int64_t first_us = 0;
+    int64_t in_samples = 0;        // input samples consumed (incl. inserted silence), at the input rate
 
     void close() {
         avcodec_free_context(&ctx);
@@ -458,14 +467,28 @@ bool AudioEncoder::encode(const AudioFrame& in, std::vector<Packet>& out) {
     }
     if (s.next_pts == INT64_MIN) {
         s.first_us = in.pts_us;
+        s.in_samples = 0;
         s.next_pts = av_rescale_q(in.pts_us, kUs, s.ctx->time_base);
     }
-    const int in_n = in.sample_count();
+    // AAC timestamps count samples. If the source skipped (a USB microphone dropping data,
+    // a stalled device), fill the hole with silence so the audio stays on the video's timeline.
+    const int64_t expected_us = s.first_us + s.in_samples * 1000000 / in.sample_rate;
+    int pad = 0;
+    if (in.pts_us - expected_us > 30000) pad = (int)std::min<int64_t>((in.pts_us - expected_us) * in.sample_rate / 1000000, in.sample_rate * 10);
+    std::vector<int16_t> padded;
+    const int16_t* src = in.samples.data();
+    if (pad > 0) {
+        padded.assign((size_t)pad * in.channels, 0);
+        padded.insert(padded.end(), in.samples.begin(), in.samples.end());
+        src = padded.data();
+    }
+    const int in_n = in.sample_count() + pad;
+    s.in_samples += in_n;
     const int max_out = (int)swr_get_out_samples(s.swr, in_n) + 16;
     std::vector<float> planes((size_t)max_out * s.cfg.channels);
     uint8_t* outp[8] = {nullptr};
     for (int c = 0; c < s.cfg.channels && c < 8; ++c) outp[c] = (uint8_t*)(planes.data() + (size_t)c * max_out);
-    const uint8_t* inp[1] = {(const uint8_t*)in.samples.data()};
+    const uint8_t* inp[1] = {(const uint8_t*)src};
     int got = swr_convert(s.swr, outp, max_out, inp, in_n);
     if (got < 0) {
         s.err = "audio resample failed";
@@ -493,11 +516,51 @@ struct VideoDecoder::Impl {
     AVCodecContext* ctx = nullptr;
     AVPacket* pkt = nullptr;
     AVFrame* frame = nullptr;
-    std::string err;
+    AVFrame* sw = nullptr;           // hardware frames are copied down into this
+    AVBufferRef* hw_dev = nullptr;
+    AVPixelFormat hw_fmt = AV_PIX_FMT_NONE;
+    std::string err, name;
     void close() {
         avcodec_free_context(&ctx);
         av_packet_free(&pkt);
         av_frame_free(&frame);
+        av_frame_free(&sw);
+        av_buffer_unref(&hw_dev);
+        hw_fmt = AV_PIX_FMT_NONE;
+    }
+    // Offered formats: take the hardware one; else the first software one (the decoder fell back).
+    static AVPixelFormat pick_format(AVCodecContext* c, const AVPixelFormat* fmts) {
+        Impl* s = (Impl*)c->opaque;
+        for (const AVPixelFormat* f = fmts; *f != AV_PIX_FMT_NONE; ++f)
+            if (*f == s->hw_fmt) return *f;
+        for (const AVPixelFormat* f = fmts; *f != AV_PIX_FMT_NONE; ++f)
+            if (!(av_pix_fmt_desc_get(*f)->flags & AV_PIX_FMT_FLAG_HWACCEL)) return *f;
+        return AV_PIX_FMT_NONE;
+    }
+    bool setup_hw(const AVCodec* codec) {
+#if defined(_WIN32)
+        const AVHWDeviceType type = AV_HWDEVICE_TYPE_D3D11VA;
+#elif defined(__APPLE__)
+        const AVHWDeviceType type = AV_HWDEVICE_TYPE_VIDEOTOOLBOX;
+#elif defined(__ANDROID__)
+        const AVHWDeviceType type = AV_HWDEVICE_TYPE_MEDIACODEC;
+#else
+        const AVHWDeviceType type = AV_HWDEVICE_TYPE_VAAPI;
+#endif
+        for (int i = 0;; ++i) {
+            const AVCodecHWConfig* hc = avcodec_get_hw_config(codec, i);
+            if (!hc) return false;  // not built in for this OS
+            if ((hc->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX) && hc->device_type == type) {
+                hw_fmt = hc->pix_fmt;
+                break;
+            }
+        }
+        if (av_hwdevice_ctx_create(&hw_dev, type, nullptr, nullptr, 0) < 0) return false;  // no GPU / driver
+        ctx->hw_device_ctx = av_buffer_ref(hw_dev);
+        ctx->opaque = this;
+        ctx->get_format = pick_format;
+        name = av_hwdevice_get_type_name(type);
+        return true;
     }
     bool receive(std::vector<VideoFrame>& out) {
         for (;;) {
@@ -508,7 +571,19 @@ struct VideoDecoder::Impl {
                 return false;
             }
             VideoFrame vf;
-            if (!frame_from_av(frame, vf, err)) return false;
+            const AVFrame* src = frame;
+            if (frame->format == hw_fmt && hw_fmt != AV_PIX_FMT_NONE) {
+                if (!sw) sw = av_frame_alloc();
+                av_frame_unref(sw);
+                int t = av_hwframe_transfer_data(sw, frame, 0);  // GPU surface -> NV12 in memory
+                if (t < 0) {
+                    err = "hw frame transfer: " + av_err(t);
+                    av_frame_unref(frame);
+                    return false;
+                }
+                src = sw;
+            }
+            if (!frame_from_av(src, vf, err)) return false;
             int64_t ts = frame->best_effort_timestamp != AV_NOPTS_VALUE ? frame->best_effort_timestamp : frame->pts;
             vf.pts_us = ts == AV_NOPTS_VALUE ? 0 : ts;
             av_frame_unref(frame);
@@ -520,8 +595,9 @@ struct VideoDecoder::Impl {
 VideoDecoder::VideoDecoder() : p_(new Impl) {}
 VideoDecoder::~VideoDecoder() { p_->close(); }
 
-bool VideoDecoder::open() {
+bool VideoDecoder::open(bool hardware) {
     p_->close();
+    p_->name = "software";
     const AVCodec* codec = avcodec_find_decoder(AV_CODEC_ID_H264);
     if (!codec) {
         p_->err = "H.264 decoder not built in";
@@ -534,6 +610,10 @@ bool VideoDecoder::open() {
     // which shows up as latency and as bursts after a seek / at the end of a file.
     p_->ctx->thread_type = FF_THREAD_SLICE;
     p_->ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
+    if (hardware && !p_->setup_hw(codec)) {
+        av_buffer_unref(&p_->hw_dev);
+        p_->hw_fmt = AV_PIX_FMT_NONE;  // software decoding, as if hardware had not been asked for
+    }
     int r = avcodec_open2(p_->ctx, codec, nullptr);
     if (r < 0) {
         p_->err = "h264 decoder open: " + av_err(r);
@@ -579,6 +659,7 @@ bool VideoDecoder::flush(std::vector<VideoFrame>& out) {
 }
 
 void VideoDecoder::close() { p_->close(); }
+std::string VideoDecoder::name() const { return p_->name; }
 const std::string& VideoDecoder::error() const { return p_->err; }
 
 // ---------------------------------------------------------------- AudioDecoder

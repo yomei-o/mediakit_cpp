@@ -2,8 +2,10 @@
 #include "mk_pipeline.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <atomic>
 #include <condition_variable>
+#include <cstdio>
 #include <deque>
 #include <mutex>
 #include <thread>
@@ -90,7 +92,7 @@ struct FileSource::Impl {
 FileSource::FileSource() : p_(new Impl) {}
 FileSource::~FileSource() { close(); }
 
-bool FileSource::open(const std::string& path, bool loop) {
+bool FileSource::open(const std::string& path, bool loop, bool hardware_decode) {
     close();
     Impl& s = *p_;
     s.err.clear();
@@ -101,7 +103,7 @@ bool FileSource::open(const std::string& path, bool loop) {
         return false;
     }
     const MediaInfo& in = s.reader.info();
-    if (in.has_video && !s.vdec.open()) {
+    if (in.has_video && !s.vdec.open(hardware_decode)) {
         s.set_err(s.vdec.error());
         return false;
     }
@@ -386,7 +388,7 @@ bool Recorder::open(const RecorderConfig& cfg, std::function<void(const VideoFra
     s.from_file = !cfg.input_file.empty();
     s.have_audio = false;
     if (s.from_file) {
-        if (!s.file.open(cfg.input_file, cfg.input_loop)) {
+        if (!s.file.open(cfg.input_file, cfg.input_loop, cfg.input_hardware_decode)) {
             s.set_err("input file: " + s.file.error());
             return false;
         }
@@ -619,10 +621,23 @@ struct Player::Impl {
         Packet p;
         std::vector<VideoFrame> vf;
         std::vector<AudioFrame> af;
+        const bool dbg = getenv("MK_DEBUG") != nullptr;
+        int64_t next_dbg = 0, last_v = 0, last_a = 0;
         while (running) {
             if (is_paused) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 continue;
+            }
+            if (dbg && now_us() >= next_dbg) {
+                next_dbg = now_us() + 250000;
+                size_t n;
+                {
+                    std::lock_guard<std::mutex> lk(fq_mu);
+                    n = fq.size();
+                }
+                std::fprintf(stderr, "[player] fq %zu  audio queued %.3f  played %.3f  read v %.3f a %.3f\n", n,
+                             has_audio ? spk.queued_us() / 1e6 : 0.0, has_audio ? spk.played_pts_us() / 1e6 : 0.0, last_v / 1e6,
+                             last_a / 1e6);
             }
             // keep a little audio queued; keep the video queue short
             if ((has_audio && spk.queued_us() > 400000)) {
@@ -635,8 +650,13 @@ struct Player::Impl {
             }
             {
                 std::unique_lock<std::mutex> lk(fq_mu);
-                fq_cv.wait_for(lk, std::chrono::milliseconds(50), [&] { return fq.size() < 8 || !running; });
-                if (fq.size() >= 8) continue;
+                // Normally keep 8 decoded frames ahead. If the speaker is about to run dry, read on anyway
+                // (up to 64): the audio clock drives the video, so starving the audio would stall both.
+                auto room = [&] {
+                    return fq.size() < 8 || (has_audio && fq.size() < 64 && spk.queued_us() < 350000) || !running;
+                };
+                fq_cv.wait_for(lk, std::chrono::milliseconds(20), room);
+                if (!room()) continue;
             }
             if (!reader.read(p)) {
                 if (has_video) {
@@ -647,6 +667,7 @@ struct Player::Impl {
                 eof = true;
                 return;
             }
+            if (p.type == MediaType::Video) last_v = p.pts_us; else last_a = p.pts_us;
             if (p.type == MediaType::Video && has_video) {
                 vf.clear();
                 if (!vdec.decode(p, vf)) set_err(vdec.error());
@@ -672,6 +693,7 @@ struct Player::Impl {
     void show_loop() {
         while (running) {
             VideoFrame f;
+            int64_t sleep_us = 0;
             {
                 std::unique_lock<std::mutex> lk(fq_mu);
                 fq_cv.wait_for(lk, std::chrono::milliseconds(20), [&] { return !fq.empty() || !running; });
@@ -680,11 +702,21 @@ struct Player::Impl {
                     continue;
                 }
                 int64_t c = clock();
-                if (c < 0 || fq.front().pts_us > c + 5000) continue;
-                f = std::move(fq.front());
-                fq.pop_front();
-                // late by more than two frames and another is ready: skip this one
-                if (!fq.empty() && fq.front().pts_us <= c) {
+                if (c < 0) sleep_us = 5000;  // audio not started yet
+                else if (fq.front().pts_us > c + 5000) sleep_us = std::min<int64_t>(fq.front().pts_us - c, 10000);
+                if (!sleep_us) {
+                    f = std::move(fq.front());
+                    fq.pop_front();
+                }
+            }
+            if (sleep_us) {  // not due yet: sleep without holding the queue (don't spin)
+                std::this_thread::sleep_for(std::chrono::microseconds(sleep_us));
+                continue;
+            }
+            {
+                // late, and the next one is due too: skip this one
+                std::lock_guard<std::mutex> lk(fq_mu);
+                if (!fq.empty() && fq.front().pts_us <= clock()) {
                     fq_cv.notify_all();
                     continue;
                 }
@@ -698,7 +730,8 @@ struct Player::Impl {
 Player::Player() : p_(new Impl) {}
 Player::~Player() { close(); }
 
-bool Player::open(const std::string& path, std::function<void(const VideoFrame&)> on_video, int out_width, int out_height) {
+bool Player::open(const std::string& path, std::function<void(const VideoFrame&)> on_video, int out_width, int out_height,
+                  bool hardware_decode) {
     close();
     Impl& s = *p_;
     s.err.clear();
@@ -707,7 +740,7 @@ bool Player::open(const std::string& path, std::function<void(const VideoFrame&)
         return false;
     }
     const MediaInfo& in = s.reader.info();
-    s.has_video = in.has_video && s.vdec.open();
+    s.has_video = in.has_video && s.vdec.open(hardware_decode);
     s.has_audio = false;
     if (in.has_audio && s.adec.open(in.sample_rate, in.channels, in.audio_extradata)) {
         SpeakerConfig sc;
@@ -774,6 +807,8 @@ void Player::close() {
     s.reader.close();
     s.fq.clear();
 }
+
+std::string Player::decoder_name() const { return p_->vdec.name(); }
 
 std::string Player::error() const {
     std::lock_guard<std::mutex> lk(p_->err_mu);

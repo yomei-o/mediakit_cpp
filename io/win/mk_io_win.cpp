@@ -253,6 +253,90 @@ bool init_client(IAudioClient* client, int rate, int ch, WAVEFORMATEX** used, bo
 
 // ================================================================ cameras
 
+namespace {
+
+std::string subtype_name(const GUID& g) {
+    if (g == MFVideoFormat_NV12) return "NV12";
+    if (g == MFVideoFormat_YUY2) return "YUY2";
+    if (g == MFVideoFormat_MJPG) return "MJPG";
+    if (g == MFVideoFormat_H264) return "H264";
+    if (g == MFVideoFormat_RGB24) return "RGB24";
+    if (g == MFVideoFormat_RGB32) return "RGB32";
+    if (g == MFVideoFormat_I420) return "I420";
+    if (g == MFVideoFormat_UYVY) return "UYVY";
+    char b[8] = {0};
+    memcpy(b, &g.Data1, 4);  // FOURCC subtypes keep the code in Data1
+    for (char& c : b)
+        if (c && (c < 32 || c > 126)) c = '?';
+    return b;
+}
+
+// Activate the camera with that id (or the first); fills name.
+ComPtr<IMFMediaSource> activate_camera(const std::string& id, std::string& name, std::string& err) {
+    ComPtr<IMFAttributes> attr;
+    MFCreateAttributes(&attr, 1);
+    attr->SetGUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID);
+    IMFActivate** devs = nullptr;
+    UINT32 n = 0;
+    HRESULT hr = MFEnumDeviceSources(attr.Get(), &devs, &n);
+    ComPtr<IMFMediaSource> src;
+    if (FAILED(hr) || n == 0) {
+        err = "no camera found";
+        if (devs) CoTaskMemFree(devs);
+        return src;
+    }
+    int pick = -1;
+    for (UINT32 i = 0; i < n && pick < 0; ++i) {
+        WCHAR* link = nullptr;
+        UINT32 len = 0;
+        if (id.empty()) pick = 0;
+        else if (SUCCEEDED(devs[i]->GetAllocatedString(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK, &link, &len))) {
+            if (to_utf8(link) == id) pick = (int)i;
+            CoTaskMemFree(link);
+        }
+    }
+    if (pick < 0) {
+        err = "camera not found: " + id;
+    } else {
+        WCHAR* nm = nullptr;
+        UINT32 len = 0;
+        if (SUCCEEDED(devs[pick]->GetAllocatedString(MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME, &nm, &len))) name = to_utf8(nm), CoTaskMemFree(nm);
+        hr = devs[pick]->ActivateObject(IID_PPV_ARGS(&src));
+        if (FAILED(hr)) err = hr_str("camera activate (in use or no permission?)", hr);
+    }
+    for (UINT32 i = 0; i < n; ++i) devs[i]->Release();
+    CoTaskMemFree(devs);
+    return src;
+}
+
+}  // namespace
+
+std::vector<CameraMode> list_camera_modes(const std::string& device_id) {
+    ComScope com;
+    mf_once();
+    std::vector<CameraMode> out;
+    if (device_id == "test") return {{1280, 720, 30, "NV12"}, {640, 480, 30, "NV12"}};
+    std::string name, err;
+    ComPtr<IMFMediaSource> src = activate_camera(device_id, name, err);
+    if (!src) return out;
+    ComPtr<IMFSourceReader> reader;
+    if (SUCCEEDED(MFCreateSourceReaderFromMediaSource(src.Get(), nullptr, &reader))) {
+        for (DWORD i = 0;; ++i) {
+            ComPtr<IMFMediaType> t;
+            if (FAILED(reader->GetNativeMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM, i, &t))) break;
+            UINT32 w = 0, h = 0, num = 0, den = 1;
+            MFGetAttributeSize(t.Get(), MF_MT_FRAME_SIZE, &w, &h);
+            MFGetAttributeRatio(t.Get(), MF_MT_FRAME_RATE, &num, &den);
+            GUID sub = GUID_NULL;
+            t->GetGUID(MF_MT_SUBTYPE, &sub);
+            out.push_back({(int)w, (int)h, den ? (double)num / den : 0, subtype_name(sub)});
+        }
+    }
+    reader.Reset();
+    src->Shutdown();
+    return out;
+}
+
 std::vector<DeviceInfo> list_cameras() {
     ComScope com;
     mf_once();
@@ -284,6 +368,7 @@ struct Camera::Impl {
     double fps = 0;
     LONG stride = 0;
     GUID subtype = GUID_NULL;  // what the reader delivers: NV12 / YUY2 / RGB32
+    std::string native;        // what the camera sends
     std::string name, err;
     std::thread th;
     std::atomic<bool> running{false};
@@ -383,39 +468,9 @@ bool Camera::open(const CameraConfig& cfg) {
     }
     ComScope com;
     mf_once();
-    ComPtr<IMFAttributes> attr;
-    MFCreateAttributes(&attr, 1);
-    attr->SetGUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID);
-    IMFActivate** devs = nullptr;
-    UINT32 n = 0;
-    HRESULT hr = MFEnumDeviceSources(attr.Get(), &devs, &n);
-    if (FAILED(hr) || n == 0) {
-        s.err = "no camera found";
-        if (devs) CoTaskMemFree(devs);
-        return false;
-    }
-    int pick = -1;
-    for (UINT32 i = 0; i < n && pick < 0; ++i) {
-        WCHAR* link = nullptr;
-        UINT32 len = 0;
-        if (cfg.device_id.empty()) pick = 0;
-        else if (SUCCEEDED(devs[i]->GetAllocatedString(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK, &link, &len))) {
-            if (to_utf8(link) == cfg.device_id) pick = (int)i;
-            CoTaskMemFree(link);
-        }
-    }
-    if (pick < 0) {
-        s.err = "camera not found: " + cfg.device_id;
-    } else {
-        WCHAR* nm = nullptr;
-        UINT32 len = 0;
-        if (SUCCEEDED(devs[pick]->GetAllocatedString(MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME, &nm, &len))) s.name = to_utf8(nm), CoTaskMemFree(nm);
-        hr = devs[pick]->ActivateObject(IID_PPV_ARGS(&s.source));
-        if (FAILED(hr)) s.err = hr_str("camera activate (in use or no permission?)", hr);
-    }
-    for (UINT32 i = 0; i < n; ++i) devs[i]->Release();
-    CoTaskMemFree(devs);
+    s.source = activate_camera(cfg.device_id, s.name, s.err);
     if (!s.source) return false;
+    HRESULT hr;
 
     ComPtr<IMFAttributes> rattr;
     MFCreateAttributes(&rattr, 2);
@@ -439,11 +494,18 @@ bool Camera::open(const CameraConfig& cfg) {
         GUID sub = GUID_NULL;
         t->GetGUID(MF_MT_SUBTYPE, &sub);
         double f = den ? (double)num / den : 0;
+        // size first, then fps, then cheap formats (NV12 < YUY2 < MJPG: MJPG needs a decoder)
         double score = std::fabs(std::log((double)std::max(1u, w * h) / std::max(1, cfg.width * cfg.height))) * 100 +
                        std::fabs(f - cfg.fps) + (sub == MFVideoFormat_NV12 ? 0 : sub == MFVideoFormat_YUY2 ? 0.5 : 1);
+        if (!cfg.format.empty()) score += subtype_name(sub) == cfg.format ? 0 : 1000;
         if (score < best_score) best_score = score, best = t;
     }
-    if (best) s.reader->SetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM, nullptr, best.Get());
+    if (best) {
+        s.reader->SetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM, nullptr, best.Get());
+        GUID sub = GUID_NULL;
+        best->GetGUID(MF_MT_SUBTYPE, &sub);
+        s.native = subtype_name(sub);
+    }
     const GUID wants[] = {MFVideoFormat_NV12, MFVideoFormat_YUY2, MFVideoFormat_RGB32};
     bool ok = false;
     for (const GUID& g : wants) {
@@ -507,6 +569,7 @@ void Camera::close() {
 int Camera::width() const { return p_->width; }
 int Camera::height() const { return p_->height; }
 double Camera::fps() const { return p_->fps; }
+std::string Camera::format() const { return p_->test ? "NV12" : p_->native; }
 std::string Camera::name() const { return p_->name; }
 const std::string& Camera::error() const { return p_->err; }
 
@@ -807,9 +870,8 @@ void Speaker::write(const AudioFrame& f) {
     s.q.insert(s.q.end(), res.begin(), res.end());
 }
 
-int64_t Speaker::played_pts_us() const {
-    Impl& s = *p_;
-    std::lock_guard<std::mutex> lk(s.mu);
+// with s.mu held
+static int64_t played_locked(const Speaker::Impl& s) {
     const int64_t heard = s.written - s.padding;  // device frame index being played
     int64_t pts = -1;
     for (auto& g : s.segs) {
@@ -819,10 +881,24 @@ int64_t Speaker::played_pts_us() const {
     return pts;
 }
 
-int64_t Speaker::queued_us() const {
+int64_t Speaker::played_pts_us() const {
     Impl& s = *p_;
     std::lock_guard<std::mutex> lk(s.mu);
-    return (int64_t)(s.q.size() / std::max(1, s.cfg.channels) + s.padding) * 1000000 / s.cfg.sample_rate;
+    return played_locked(s);
+}
+
+int64_t Speaker::queued_us() const {
+    // Real audio not heard yet, in media time. Silence the device plays while starving does not count,
+    // so a caller can tell when it must feed more.
+    Impl& s = *p_;
+    std::lock_guard<std::mutex> lk(s.mu);
+    const int ch = std::max(1, s.cfg.channels);
+    const int64_t q_us = (int64_t)(s.q.size() / ch) * 1000000 / s.cfg.sample_rate;
+    const int64_t end = !s.q.empty() ? s.q_pts + q_us : s.last_real_end;
+    const int64_t played = played_locked(s);
+    if (end < 0) return 0;
+    if (played < 0) return q_us + (s.last_real_end >= 0 ? s.last_real_end - std::max<int64_t>(0, s.segs.empty() ? 0 : s.segs.front().pts) : 0);
+    return std::max<int64_t>(0, end - played);
 }
 
 void Speaker::clear() {
@@ -831,6 +907,7 @@ void Speaker::clear() {
     s.q.clear();
     s.q_pts = -1;
     s.segs.clear();
+    s.last_real_end = -1;
 }
 
 void Speaker::stop() {

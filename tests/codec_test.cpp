@@ -1,6 +1,6 @@
 // Codec layer round trip without any device:
 //   synthetic NV12 frames + 440 Hz tone -> H.264 / AAC -> MP4 -> read -> decode -> compare.
-//   codec_test [out.mp4] [--encoder NAME] [--sw]
+//   codec_test [out.mp4] [--encoder NAME] [--sw] [--hwdec]
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -49,11 +49,12 @@ static double psnr_y(const mk::VideoFrame& a, const mk::VideoFrame& b) {
 
 int main(int argc, char** argv) {
     std::string path = "codec_test.mp4", encoder = "auto";
-    bool hw = true;
+    bool hw = true, hwdec = false;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--encoder" && i + 1 < argc) encoder = argv[++i];
         else if (a == "--sw") hw = false;
+        else if (a == "--hwdec") hwdec = true;
         else path = a;
     }
     const int W = 640, H = 360, FPS = 30, N = 90, RATE = 48000;
@@ -76,7 +77,8 @@ int main(int argc, char** argv) {
 
     // Live path: decode straight from the encoder output (what a streaming receiver sees).
     mk::VideoDecoder live;
-    CHECK(live.open(), "decoder open");
+    CHECK(live.open(hwdec), "decoder open");
+    std::printf("video decoder: %s\n", live.name().c_str());
     int live_frames = 0, keyframes = 0;
     double min_psnr_live = 99;
     std::vector<mk::VideoFrame> originals;
@@ -162,7 +164,7 @@ int main(int argc, char** argv) {
 
     mk::VideoDecoder vdec;
     mk::AudioDecoder adec;
-    CHECK(vdec.open(), "vdec");
+    CHECK(vdec.open(hwdec), "vdec");
     CHECK(adec.open(info.sample_rate, info.channels, info.audio_extradata), "adec: %s", adec.error().c_str());
     mk::FrameConverter conv;
     int vframes = 0;
