@@ -69,10 +69,16 @@ iOS（シミュレータ iOS 26.3、arm64。実機はまだ）
   実時間ではないので全部通る。ここは実機で測り直すこと。
 - 実機に入れるには署名が要る。Xcode に Apple ID を足せば無料の Personal Team で足りる
   （`tools/build_ios_app.sh` が Team ID を Xcode の plist から拾って `-allowProvisioningUpdates` で回す）。
-  手元の iPhone 16（iOS 18.6.2）は USB では列挙されるのに lockdown / CoreDevice から全く見えず
-  （`/var/db/lockdown` が空、`devicectl` が「No devices found」）、ケーブル直挿し・usbmuxd 再起動・
-  位置情報とプライバシーのリセット・端末再起動・古いペアリング記録の `devicectl manage unpair` を
-  試しても復活しなかった。プロビジョニングはまだ一度も通していない。
+  ただし **この開発用 Mac では iPhone を USB で繋げない**。USB バス上では正常に見えている
+  （`ioreg -p IOUSB` に `iPhone@...`、`bNumConfigurations = 5`、matched / active）のに、
+  コンフィギュレーションが一つも選択されずインタフェースが生えないので、`usbmuxd` も lockdown も
+  CoreDevice も端末を掴めない（Finder にも出ない、`devicectl` は「No devices found」）。
+  ケーブル交換（Type-C）・ポート変更（ハブ経由をやめて直挿し）・`usbmuxd` と `remotepairingd` の再起動・
+  iPhone 再起動・位置情報とプライバシーのリセット・`devicectl manage unpair` を全部試して無効。
+  同じ Mac の USB カメラやオーディオ I/F は普通に動くので USB 全面禁止ではない。
+  この Mac は Jamf（safieteam.jamfcloud.com）管理下で CrowdStrike Falcon の Endpoint Security 拡張が
+  動いており、モバイルデバイスだけを止める USB デバイス制御が効いていると見るのが自然。
+  実機で試すには情シスに例外を依頼するか、管理外の Mac を使うこと。プロビジョニングはまだ一度も通していない。
 
 ## 落とし穴
 
