@@ -1,2 +1,5 @@
 * text=auto eol=lf
 *.bat text eol=crlf
+*.h264 binary
+*.aac binary
+*.mp4 binary

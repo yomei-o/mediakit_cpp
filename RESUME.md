@@ -140,5 +140,3 @@ iOS（シミュレータ iOS 26.3、arm64。実機はまだ）
    カメラが測れる。Xcode が iPhone を認識するところが先）
 3. FFmpeg の設定ヘッダ（`ffmpeg_gen/config_*.h`）を OS ごとに見直す（今は Windows x64 用 + `#ifdef` 分岐）
 4. OpenH264（BSD）の SW エンコーダを LGPL ビルド用に
-5. `testdata/chicago.h264` が `.gitignore` の `*.h264` に引っかかって repo に入っていない
-   （README と mk_mux の例はこれを指している）。`!testdata/*.h264` を足すか、例を直すか
