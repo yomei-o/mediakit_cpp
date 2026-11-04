@@ -17,9 +17,9 @@ testdata/  chicago.h264 + chicago.aac（1280x720 30fps、415 秒）
 | | Windows | Linux | macOS | Android | iOS |
 |---|---|---|---|---|---|
 | io（カメラ・マイク・スピーカー） | ✓ Media Foundation + WASAPI | V4L2 + ALSA（ビルドのみ） | – | – | – |
-| codec | ✓ | ✓（ビルド） | – | – | – |
+| codec | ✓ | ✓（WSL で codec_test 通過） | – | – | – |
 | ui | ✓ Win32 + GDI | X11（ビルドのみ） | – | – | – |
-| pipeline | ✓ | ✓（ビルド） | – | – | – |
+| pipeline | ✓ | ✓（疑似デバイスで録画→再生通過） | – | – | – |
 
 ## 使い方
 

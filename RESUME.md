@@ -30,7 +30,8 @@ Windows（ビルド機 192.168.6.14：x64 + NVIDIA、開発機：Mac 上の ARM6
 - chicago（415 秒）を mk_mux で MP4 にして最後まで再生：12456 フレーム、A/V 0.25 s 以内。
 
 Linux（WSL1、aarch64、g++ 9.4）
-- ビルドのみ。WSL1 には /dev/video も音のデバイスも X も無い（Parallels 上の ARM Windows では WSL2 が使えない：
+- ビルド通過。codec_test（x264、PSNR 46.1 dB）と疑似デバイスでの録画→再生（90 フレーム、ずれ 36 ms）も通過。
+  WSL1 には /dev/video も音のデバイスも X も無い（Parallels 上の ARM Windows では WSL2 が使えない：
   `HCS_E_HYPERV_NOT_INSTALLED`）。実機での確認は別の Linux マシンで。
 
 ## 落とし穴
