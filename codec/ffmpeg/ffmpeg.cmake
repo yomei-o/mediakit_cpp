@@ -1,8 +1,11 @@
 # Flattened FFmpeg 7.1.1 (LGPL 2.1+) — only the libraries mediakit uses.
 # Generated from the original project build list; x264 / postproc / avfilter / avdevice removed (GPL or unused).
 set(MK_FF_DIR ${CMAKE_CURRENT_LIST_DIR})
-set(MK_FF_INCLUDES ${MK_FF_DIR} ${MK_FF_DIR}/libavutil ${MK_FF_DIR}/compat ${MK_FF_DIR}/compat/win32 ${MK_FF_DIR}/ffmpeg_gen
-    ${MK_FF_DIR}/libavformat ${MK_FF_DIR}/libavcodec ${MK_FF_DIR}/libswresample ${MK_FF_DIR}/libswscale ${MK_FF_DIR}/libavfilter ${MK_FF_DIR}/libavdevice)
+if(WIN32)
+  set(MK_FF_WIN_INC ${MK_FF_DIR}/compat/win32)
+endif()
+set(MK_FF_INCLUDES ${MK_FF_DIR} ${MK_FF_DIR}/libavutil ${MK_FF_DIR}/compat ${MK_FF_DIR}/ffmpeg_gen
+    ${MK_FF_DIR}/libavformat ${MK_FF_DIR}/libavcodec ${MK_FF_DIR}/libswresample ${MK_FF_DIR}/libswscale ${MK_FF_DIR}/libavfilter ${MK_FF_DIR}/libavdevice ${MK_FF_WIN_INC})
 
 add_library(mk_avutil STATIC
     ${MK_FF_DIR}/libavutil/adler32_avutil.c
@@ -1572,8 +1575,6 @@ add_library(mk_avcodec STATIC
     ${MK_FF_DIR}/libavcodec/yop_avcodec.c
     ${MK_FF_DIR}/libavcodec/yuv4dec.c
     ${MK_FF_DIR}/libavcodec/yuv4enc.c
-    ${MK_FF_DIR}/libavcodec/mfenc.c
-    ${MK_FF_DIR}/libavcodec/mf_utils.c
 )
 target_include_directories(mk_avcodec PRIVATE ${MK_FF_INCLUDES})
 target_compile_definitions(mk_avcodec PRIVATE _USE_MATH_DEFINES _CRT_SECURE_NO_WARNINGS)
@@ -1625,13 +1626,21 @@ target_link_libraries(mk_avformat PUBLIC mk_avcodec)
 target_link_libraries(mk_avcodec PUBLIC mk_swresample mk_avutil)
 target_link_libraries(mk_swscale PUBLIC mk_avutil)
 target_link_libraries(mk_swresample PUBLIC mk_avutil)
+if(UNIX)
+  find_package(Threads REQUIRED)
+  target_link_libraries(mk_avutil PUBLIC Threads::Threads m ${CMAKE_DL_LIBS})
+  foreach(t mk_avutil mk_avcodec mk_avformat mk_swscale mk_swresample)
+    target_compile_options(${t} PRIVATE -w -fno-strict-aliasing)
+  endforeach()
+endif()
 if(WIN32)
   target_link_libraries(mk_avutil PUBLIC bcrypt)
   target_link_libraries(mk_avformat PUBLIC ws2_32 secur32)
   target_link_libraries(mk_avcodec PUBLIC mfplat mfuuid strmiids ole32)
 endif()
 add_library(mk_ffmpeg INTERFACE)
-if(WIN32)  # D3D11VA hardware decoding
+if(WIN32)  # Media Foundation H.264 encoder, D3D11VA hardware decoding
+  target_sources(mk_avcodec PRIVATE ${MK_FF_DIR}/libavcodec/mfenc.c ${MK_FF_DIR}/libavcodec/mf_utils.c)
   target_sources(mk_avcodec PRIVATE ${MK_FF_DIR}/libavcodec/dxva2.c ${MK_FF_DIR}/libavcodec/d3d11va.c ${MK_FF_DIR}/libavcodec/dxva2_h264.c)
   target_sources(mk_avutil PRIVATE ${MK_FF_DIR}/libavutil/hwcontext_d3d11va.c)
 endif()

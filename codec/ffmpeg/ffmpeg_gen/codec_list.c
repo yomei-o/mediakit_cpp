@@ -172,7 +172,9 @@ static const FFCodec * const codec_list[] = {
     //yomei
     //&ff_aac_mf_encoder,
     //&ff_ac3_mf_encoder,
+#ifdef _WIN32
     &ff_h264_mf_encoder,
+#endif
 #ifdef MK_WITH_X264
     &ff_libx264_encoder,
 #endif

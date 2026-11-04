@@ -38,6 +38,7 @@ AVPixelFormat to_av(PixelFormat f) {
         case PixelFormat::YUY2: return AV_PIX_FMT_YUYV422;
         case PixelFormat::BGRA: return AV_PIX_FMT_BGRA;
         case PixelFormat::RGB24: return AV_PIX_FMT_RGB24;
+        case PixelFormat::MJPEG: return AV_PIX_FMT_NONE;
     }
     return AV_PIX_FMT_NONE;
 }
@@ -131,14 +132,67 @@ struct FrameConverter::Impl {
     SwsContext* sws = nullptr;
     int sw = 0, sh = 0, dw = 0, dh = 0;
     AVPixelFormat sf = AV_PIX_FMT_NONE, df = AV_PIX_FMT_NONE;
-    ~Impl() { sws_freeContext(sws); }
+    // MJPEG input
+    AVCodecContext* jpeg = nullptr;
+    AVPacket* pkt = nullptr;
+    AVFrame* frame = nullptr;
+    VideoFrame decoded;
+    ~Impl() {
+        sws_freeContext(sws);
+        avcodec_free_context(&jpeg);
+        av_packet_free(&pkt);
+        av_frame_free(&frame);
+    }
+    bool decode_jpeg(const VideoFrame& in) {
+        if (!jpeg) {
+            const AVCodec* c = avcodec_find_decoder(AV_CODEC_ID_MJPEG);
+            if (!c) return false;
+            jpeg = avcodec_alloc_context3(c);
+            jpeg->thread_count = 1;
+            if (avcodec_open2(jpeg, c, nullptr) < 0) return false;
+            pkt = av_packet_alloc();
+            frame = av_frame_alloc();
+        }
+        av_new_packet(pkt, in.stride[0]);
+        memcpy(pkt->data, in.data[0], in.stride[0]);
+        int r = avcodec_send_packet(jpeg, pkt);
+        av_packet_unref(pkt);
+        if (r < 0 || avcodec_receive_frame(jpeg, frame) < 0) return false;
+        // JPEG is 4:2:2 or 4:2:0 full range: hand it to swscale as it is
+        decoded.width = frame->width, decoded.height = frame->height;
+        bool ok = true;
+        std::string e;
+        if (frame->format == AV_PIX_FMT_YUVJ420P || frame->format == AV_PIX_FMT_YUV420P) ok = frame_from_av(frame, decoded, e);
+        else ok = false;
+        if (!ok) {
+            // other JPEG layouts (4:2:2 ...): convert to I420 directly from the AVFrame
+            SwsContext* c = sws_getContext(frame->width, frame->height, (AVPixelFormat)frame->format, frame->width, frame->height,
+                                           AV_PIX_FMT_YUV420P, SWS_POINT, nullptr, nullptr, nullptr);
+            if (!c) return false;
+            decoded.alloc(frame->width & ~1, frame->height & ~1, PixelFormat::I420);
+            uint8_t* dst[4] = {decoded.data[0], decoded.data[1], decoded.data[2], nullptr};
+            int ds[4] = {decoded.stride[0], decoded.stride[1], decoded.stride[2], 0};
+            sws_scale(c, frame->data, frame->linesize, 0, frame->height, dst, ds);
+            sws_freeContext(c);
+        }
+        decoded.pts_us = in.pts_us;
+        av_frame_unref(frame);
+        return true;
+    }
 };
 
 FrameConverter::FrameConverter() : p_(new Impl) {}
 FrameConverter::~FrameConverter() = default;
 
-bool FrameConverter::convert(const VideoFrame& in, VideoFrame& out, PixelFormat format, int width, int height) {
-    if (in.empty()) return false;
+bool FrameConverter::convert(const VideoFrame& in_frame, VideoFrame& out, PixelFormat format, int width, int height) {
+    if (in_frame.empty()) return false;
+    if (format == PixelFormat::MJPEG) return false;  // no JPEG encoding here
+    const VideoFrame* srcf = &in_frame;
+    if (in_frame.format == PixelFormat::MJPEG) {
+        if (!p_->decode_jpeg(in_frame)) return false;
+        srcf = &p_->decoded;
+    }
+    const VideoFrame& in = *srcf;
     const int dw = width > 0 ? width : in.width, dh = height > 0 ? height : in.height;
     const AVPixelFormat sf = to_av(in.format), df = to_av(format);
     if (!p_->sws || p_->sw != in.width || p_->sh != in.height || p_->sf != sf || p_->dw != dw || p_->dh != dh || p_->df != df) {

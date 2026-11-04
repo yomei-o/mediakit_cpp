@@ -16,7 +16,8 @@ inline int64_t now_us() {
     return duration_cast<microseconds>(steady_clock::now().time_since_epoch()).count();
 }
 
-enum class PixelFormat { NV12, I420, YUY2, BGRA, RGB24 };
+// MJPEG: a compressed JPEG picture in buffer (data[0], stride[0] = byte size); FrameConverter decodes it.
+enum class PixelFormat { NV12, I420, YUY2, BGRA, RGB24, MJPEG };
 
 inline const char* pixel_format_name(PixelFormat f) {
     switch (f) {
@@ -25,6 +26,7 @@ inline const char* pixel_format_name(PixelFormat f) {
         case PixelFormat::YUY2: return "YUY2";
         case PixelFormat::BGRA: return "BGRA";
         case PixelFormat::RGB24: return "RGB24";
+        case PixelFormat::MJPEG: return "MJPEG";
     }
     return "?";
 }
@@ -71,6 +73,7 @@ struct VideoFrame {
             case PixelFormat::YUY2: size = (size_t)cw * 4 * h; break;
             case PixelFormat::BGRA: size = (size_t)w * 4 * h; break;
             case PixelFormat::RGB24: size = (size_t)w * 3 * h; break;
+            case PixelFormat::MJPEG: size = 0; break;  // set_compressed()
         }
         buffer.assign(size, 0);
         uint8_t* p = buffer.data();
@@ -89,9 +92,17 @@ struct VideoFrame {
             case PixelFormat::YUY2: stride[0] = cw * 4; break;
             case PixelFormat::BGRA: stride[0] = w * 4; break;
             case PixelFormat::RGB24: stride[0] = w * 3; break;
+            case PixelFormat::MJPEG: stride[0] = 0; break;
         }
     }
     bool empty() const { return buffer.empty(); }
+    // A compressed picture (MJPEG from a camera).
+    void set_compressed(int w, int h, PixelFormat f, const uint8_t* bytes, size_t n) {
+        width = w, height = h, format = f;
+        buffer.assign(bytes, bytes + n);
+        data[0] = buffer.data(), data[1] = data[2] = nullptr;
+        stride[0] = (int)n, stride[1] = stride[2] = 0;
+    }
 
 private:
     // data[] of a copy point into its own buffer at the same offsets as in `o`.
