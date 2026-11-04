@@ -263,20 +263,7 @@ struct Recorder::Impl {
         }
     }
 
-    StreamInfo stream_info() const {
-        StreamInfo si;
-        if (venc) {
-            si.has_video = true;
-            si.width = venc->config().width, si.height = venc->config().height, si.fps = venc->config().fps;
-            si.video_extradata = venc->extradata();
-        }
-        if (aenc) {
-            si.has_audio = true;
-            si.sample_rate = aenc->config().sample_rate, si.channels = aenc->config().channels;
-            si.audio_extradata = aenc->extradata();
-        }
-        return si;
-    }
+    StreamInfo stream_info() const { return stream_info_of(venc.get(), aenc.get()); }
 
     // with enc_mu held
     void write_packets() {

@@ -104,6 +104,17 @@ private:
     std::unique_ptr<Impl> p_;
 };
 
+// What a stream of packets contains (for writers and other outputs).
+struct StreamInfo {
+    bool has_video = false;
+    int width = 0, height = 0, fps = 0;
+    std::vector<uint8_t> video_extradata;  // Annex-B SPS/PPS; may be empty - every keyframe carries them too
+    bool has_audio = false;
+    int sample_rate = 0, channels = 0, audio_bitrate = 0;
+    std::vector<uint8_t> audio_extradata;  // AAC AudioSpecificConfig
+};
+StreamInfo stream_info_of(const VideoEncoder* video, const AudioEncoder* audio);
+
 struct MediaInfo {
     bool has_video = false;
     int width = 0, height = 0;
@@ -122,6 +133,8 @@ public:
     ~Mp4Writer();
     // video / audio may be null for an audio-only / video-only file.
     bool open(const std::string& path, const VideoEncoder* video, const AudioEncoder* audio);
+    // Without encoders: remuxing packets read from somewhere else (Mp4Reader, a network ...).
+    bool open(const std::string& path, const StreamInfo& info);
     bool write(const Packet& pkt);
     bool close();
     const std::string& error() const;

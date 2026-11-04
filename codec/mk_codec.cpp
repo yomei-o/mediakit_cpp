@@ -766,20 +766,35 @@ const std::string& AudioDecoder::error() const { return p_->err; }
 
 // ---------------------------------------------------------------- Mp4Writer
 
+StreamInfo stream_info_of(const VideoEncoder* video, const AudioEncoder* audio) {
+    StreamInfo si;
+    if (video) {
+        si.has_video = true;
+        si.width = video->config().width, si.height = video->config().height, si.fps = video->config().fps;
+        si.video_extradata = video->extradata();
+    }
+    if (audio) {
+        si.has_audio = true;
+        si.sample_rate = audio->config().sample_rate, si.channels = audio->config().channels;
+        si.audio_bitrate = audio->config().bitrate;
+        si.audio_extradata = audio->extradata();
+    }
+    return si;
+}
+
 struct Mp4Writer::Impl {
     AVFormatContext* fmt = nullptr;
     AVStream* vs = nullptr;
     AVStream* as = nullptr;
-    const VideoEncoder* venc = nullptr;
-    const AudioEncoder* aenc = nullptr;
+    StreamInfo info;
     bool header = false;
-    std::vector<Packet> pending;  // video packets held until SPS/PPS are known
+    std::vector<Packet> pending;  // packets held until SPS/PPS are known
     std::string path, err;
     int64_t base_us = INT64_MIN;  // first timestamp of the file -> 0
 
     bool write_header() {
         if (vs) {
-            const std::vector<uint8_t>& ex = venc->extradata();
+            const std::vector<uint8_t>& ex = info.video_extradata;
             if (ex.empty()) return false;  // not yet
             vs->codecpar->extradata = (uint8_t*)av_mallocz(ex.size() + AV_INPUT_BUFFER_PADDING_SIZE);
             memcpy(vs->codecpar->extradata, ex.data(), ex.size());
@@ -819,43 +834,47 @@ Mp4Writer::Mp4Writer() : p_(new Impl) {}
 Mp4Writer::~Mp4Writer() { close(); }
 
 bool Mp4Writer::open(const std::string& path, const VideoEncoder* video, const AudioEncoder* audio) {
+    return open(path, stream_info_of(video, audio));
+}
+
+bool Mp4Writer::open(const std::string& path, const StreamInfo& info) {
     close();
     Impl& s = *p_;
     s.err.clear();
     s.path = path;
-    s.venc = video, s.aenc = audio;
+    s.info = info;
     int r = avformat_alloc_output_context2(&s.fmt, nullptr, nullptr, path.c_str());
     if (r < 0 || !s.fmt) {
         s.err = "unknown output format for " + path;
         return false;
     }
-    if (video) {
+    if (info.has_video) {
         s.vs = avformat_new_stream(s.fmt, nullptr);
         AVCodecParameters* cp = s.vs->codecpar;
         cp->codec_type = AVMEDIA_TYPE_VIDEO;
         cp->codec_id = AV_CODEC_ID_H264;
-        cp->width = video->config().width;
-        cp->height = video->config().height;
+        cp->width = info.width;
+        cp->height = info.height;
         cp->format = AV_PIX_FMT_YUV420P;
         s.vs->time_base = {1, 90000};
-        s.vs->avg_frame_rate = {video->config().fps, 1};
+        if (info.fps > 0) s.vs->avg_frame_rate = {info.fps, 1};
     }
-    if (audio) {
+    if (info.has_audio) {
         s.as = avformat_new_stream(s.fmt, nullptr);
         AVCodecParameters* cp = s.as->codecpar;
         cp->codec_type = AVMEDIA_TYPE_AUDIO;
         cp->codec_id = AV_CODEC_ID_AAC;
-        cp->sample_rate = audio->config().sample_rate;
-        av_channel_layout_default(&cp->ch_layout, audio->config().channels);
-        cp->bit_rate = audio->config().bitrate;
+        cp->sample_rate = info.sample_rate;
+        av_channel_layout_default(&cp->ch_layout, info.channels);
+        cp->bit_rate = info.audio_bitrate;
         cp->frame_size = 1024;
-        const std::vector<uint8_t>& ex = audio->extradata();
+        const std::vector<uint8_t>& ex = info.audio_extradata;
         if (!ex.empty()) {
             cp->extradata = (uint8_t*)av_mallocz(ex.size() + AV_INPUT_BUFFER_PADDING_SIZE);
             memcpy(cp->extradata, ex.data(), ex.size());
             cp->extradata_size = (int)ex.size();
         }
-        s.as->time_base = {1, audio->config().sample_rate};
+        s.as->time_base = {1, info.sample_rate};
     }
     if (!(s.fmt->oformat->flags & AVFMT_NOFILE)) {
         r = avio_open(&s.fmt->pb, path.c_str(), AVIO_FLAG_WRITE);
@@ -866,8 +885,8 @@ bool Mp4Writer::open(const std::string& path, const VideoEncoder* video, const A
             return false;
         }
     }
-    if (!video) return s.write_header();
-    return true;  // header waits for the first keyframe (SPS/PPS)
+    if (!info.has_video) return s.write_header();
+    return true;  // the header waits for SPS/PPS (given, or from the first keyframe)
 }
 
 bool Mp4Writer::write(const Packet& pkt) {
@@ -875,11 +894,13 @@ bool Mp4Writer::write(const Packet& pkt) {
     if (!s.fmt) return false;
     if (!s.header) {
         if (pkt.type == MediaType::Video && !pkt.keyframe && s.pending.empty()) return true;  // start at a keyframe
+        if (pkt.type == MediaType::Video && pkt.keyframe && s.info.video_extradata.empty())
+            s.info.video_extradata = h264_extract_parameter_sets(pkt.data.data(), pkt.data.size());
         s.pending.push_back(pkt);
         if (!s.write_header()) {
             if (!s.err.empty()) return false;
             if (s.pending.size() > 600) {
-                s.err = "no SPS/PPS from the video encoder";
+                s.err = "no SPS/PPS in the video";
                 return false;
             }
             return true;
@@ -931,6 +952,7 @@ struct Mp4Reader::Impl {
     int nal_len = 0;              // 0: stream is already Annex-B; else avcC NAL length size
     std::vector<uint8_t> ps;      // Annex-B SPS/PPS to put before keyframes
     int64_t video_count = 0;      // video packets read (timestamps for streams without any)
+    bool adts = false;            // audio packets carry ADTS headers (.aac files): strip them
     MediaInfo info;
     AVPacket* pkt = nullptr;
     std::string err;
@@ -1010,8 +1032,32 @@ bool Mp4Reader::open(const std::string& path) {
         s.info.channels = cp->ch_layout.nb_channels;
         if (cp->extradata_size > 0) s.info.audio_extradata.assign(cp->extradata, cp->extradata + cp->extradata_size);
     }
-    s.info.duration_us = s.fmt->duration == AV_NOPTS_VALUE ? 0 : s.fmt->duration;
     s.pkt = av_packet_alloc();
+    if (s.ai >= 0 && s.info.audio_extradata.empty()) {
+        // No AudioSpecificConfig: an ADTS stream. Build it from the first header, then start over.
+        while (av_read_frame(s.fmt, s.pkt) >= 0) {
+            const bool mine = s.pkt->stream_index == s.ai;
+            const uint8_t* h = s.pkt->data;
+            if (mine && s.pkt->size >= 7 && h[0] == 0xFF && (h[1] & 0xF0) == 0xF0) {
+                const int obj = ((h[2] >> 6) & 3) + 1, sri = (h[2] >> 2) & 0xF, ch = ((h[2] & 1) << 2) | (h[3] >> 6);
+                s.info.audio_extradata = {(uint8_t)((obj << 3) | (sri >> 1)), (uint8_t)(((sri & 1) << 7) | (ch << 3))};
+                s.adts = true;
+            }
+            av_packet_unref(s.pkt);
+            if (mine) break;
+        }
+        avformat_close_input(&s.fmt);
+        AVPacket* keep = s.pkt;
+        s.pkt = nullptr;
+        if (avformat_open_input(&s.fmt, path.c_str(), nullptr, nullptr) < 0 || avformat_find_stream_info(s.fmt, nullptr) < 0) {
+            av_packet_free(&keep);
+            s.err = "cannot reopen " + path;
+            s.close();
+            return false;
+        }
+        s.pkt = keep;
+    }
+    s.info.duration_us = s.fmt->duration == AV_NOPTS_VALUE ? 0 : s.fmt->duration;
     return true;
 }
 
@@ -1062,6 +1108,9 @@ bool Mp4Reader::read(Packet& out) {
                 out.data.insert(out.data.end(), d + pos, d + pos + l);
                 pos += (int)l;
             }
+        } else if (out.type == MediaType::Audio && s.adts && n >= 7 && d[0] == 0xFF && (d[1] & 0xF0) == 0xF0) {
+            const int hl = (d[1] & 1) ? 7 : 9;  // protection_absent ? no CRC : CRC
+            out.data.assign(d + std::min(hl, n), d + n);
         } else {
             out.data.assign(d, d + n);
         }

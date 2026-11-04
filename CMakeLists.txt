@@ -83,6 +83,8 @@ endmacro()
 if(MK_BUILD_TESTS)
   mk_program(codec_test tests/codec_test.cpp)
   target_link_libraries(codec_test mk_codec)
+  mk_program(mk_mux examples/mk_mux.cpp)
+  target_link_libraries(mk_mux mk_codec)
 endif()
 
 if(MK_BUILD_EXAMPLES AND TARGET mk_io)

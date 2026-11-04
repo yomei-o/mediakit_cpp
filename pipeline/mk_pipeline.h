@@ -21,14 +21,7 @@ namespace mk {
 
 // Where encoded media can go besides an MP4 file. Implement this for a network service, a
 // streaming server, a ring buffer ... Calls come from the Recorder's encoder thread.
-struct StreamInfo {
-    bool has_video = false;
-    int width = 0, height = 0, fps = 0;
-    std::vector<uint8_t> video_extradata;  // Annex-B SPS/PPS; may be empty at open() — every keyframe carries them too
-    bool has_audio = false;
-    int sample_rate = 0, channels = 0;
-    std::vector<uint8_t> audio_extradata;  // AAC AudioSpecificConfig
-};
+// (StreamInfo is in mk_codec.h.)
 
 class PacketSink {
 public:
