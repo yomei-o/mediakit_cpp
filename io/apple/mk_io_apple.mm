@@ -1,4 +1,4 @@
-// mediakit io for macOS / iOS: AVFoundation camera, AudioQueue microphone / speaker.
+// mediakit io for macOS and iOS: AVFoundation camera, AudioQueue microphone / speaker.
 //
 // AVFoundation converts whatever the camera sends natively to NV12 for us (as Media Foundation
 // does on Windows), so the frames handed out are always NV12 and format() names the native mode.
@@ -66,6 +66,12 @@ std::string fourcc_name(uint32_t f) {
 NSArray<AVCaptureDevice*>* video_devices() {
     NSMutableArray* types = [NSMutableArray array];
     [types addObject:AVCaptureDeviceTypeBuiltInWideAngleCamera];
+#if TARGET_OS_IPHONE
+    if (@available(iOS 13.0, *)) {
+        [types addObject:AVCaptureDeviceTypeBuiltInUltraWideCamera];
+        [types addObject:AVCaptureDeviceTypeBuiltInTelephotoCamera];
+    }
+#endif
 #if TARGET_OS_OSX
     if (@available(macOS 14.0, *)) {
         [types addObject:AVCaptureDeviceTypeExternal];
@@ -131,6 +137,24 @@ bool ensure_access(AVMediaType type) {
 }
 
 std::string to_utf8(NSString* s) { return s ? std::string(s.UTF8String) : std::string(); }
+
+// iOS routes all audio through a session; without a category that records, an input queue opens
+// and stays silent, and playback goes to the receiver instead of the speaker.
+void prepare_audio_session(bool want_input) {
+#if TARGET_OS_IPHONE
+    @autoreleasepool {
+        AVAudioSession* s = [AVAudioSession sharedInstance];
+        NSError* err = nil;
+        [s setCategory:(want_input ? AVAudioSessionCategoryPlayAndRecord : AVAudioSessionCategoryPlayback)
+                  mode:AVAudioSessionModeDefault
+               options:AVAudioSessionCategoryOptionDefaultToSpeaker | AVAudioSessionCategoryOptionAllowBluetooth
+                 error:&err];
+        [s setActive:YES error:&err];
+    }
+#else
+    (void)want_input;
+#endif
+}
 
 }  // namespace
 }  // namespace mk
@@ -502,6 +526,7 @@ bool Microphone::open(const MicrophoneConfig& cfg) {
             return false;
         }
     }
+    prepare_audio_session(true);
     AudioStreamBasicDescription fmt = pcm_s16(cfg.sample_rate, cfg.channels);
     OSStatus r = AudioQueueNewInput(&fmt, &Impl::on_buffer, &s, nullptr, nullptr, 0, &s.q);
     if (r != noErr) {
@@ -642,6 +667,7 @@ bool Speaker::open(const SpeakerConfig& cfg) {
     Impl& s = *p_;
     s.cfg = cfg;
     s.err.clear();
+    prepare_audio_session(false);
     AudioStreamBasicDescription fmt = pcm_s16(cfg.sample_rate, cfg.channels);
     OSStatus r = AudioQueueNewOutput(&fmt, &Impl::on_buffer, &s, nullptr, nullptr, 0, &s.q);
     if (r != noErr) {

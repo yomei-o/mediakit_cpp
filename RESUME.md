@@ -55,6 +55,13 @@ Android（A301KC、arm64、Android 13、MediaTek。NDK r27 / API 26 でビルド
   プレビュー → 録画（MediaCodec、181 フレーム・落ち 0）→ 保存 → 再生（0:40）→ カメラに戻る、まで
   画面を見て確認した。BACK で main() が返り、カメラも解放される。
 
+iOS（まだ実機で動かせていない）
+- 実機 SDK とシミュレータ SDK のどちらでもビルドとリンクが通るところまで。io は macOS と同じ
+  `io/apple/mk_io_apple.mm`（`AVAudioSession` の設定だけ iOS のときに入る）、ui は `ui/ios/mk_ui_ios.mm`。
+- 実機に入れるには署名が要る。Xcode に Apple ID を足せば無料の Personal Team で足りる
+  （`tools/build_ios_app.sh` が Team ID を Xcode の plist から拾って `-allowProvisioningUpdates` で回す）。
+  手元では iPhone 16（iOS 18.6.2）が Xcode から「オフライン」のままで、プロビジョニングまで進めていない。
+
 ## 落とし穴
 
 - `VideoFrame` は data[] が自分の buffer を指す。コピー・ムーブでポインタを付け替える。
@@ -101,6 +108,9 @@ Android（A301KC、arm64、Android 13、MediaTek。NDK r27 / API 26 でビルド
 - Android：binder のスレッドプールは `ABinderProcess_startThreadPool()` だけ呼ぶ。
   `setThreadPoolMaxThreadCount()` は、既に大きい上限で動いているプロセス（＝普通のアプリ）だと
   「cannot be shrunk after starting」で abort する。
+- iOS：UIKit は `main()` とメインスレッドを譲らない。`ui` が `main()` を持って `UIApplicationMain` を回し、
+  プログラムの `main()` は別スレッドで走らせる（`mk_ui.h` が iOS のときだけ `main` を `mk_ios_main` に
+  付け替える）。UIKit に触る所は全部メインキューに渡す。`Window::run()` は close されるまで眠るだけ。
 - Android の ui：NDK には文字を描く手段が無いので、ボタンとステータスだけ JNI で
   `android.graphics.Paint` に描かせて、出てきた ARGB を自前の画面に合成している。
   ファイル選択のダイアログも無いので、保存はアプリの外部ファイル領域、読み込みはそこの最新ファイル。
@@ -108,7 +118,7 @@ Android（A301KC、arm64、Android 13、MediaTek。NDK r27 / API 26 でビルド
 ## 次にやること
 
 1. Linux 実機：V4L2（YUYV / MJPEG）、ALSA、X11 窓の確認（家の環境で）。Linux の HW エンコード（VA-API）
-2. iOS（io は macOS 版とほぼ同じ AVFoundation + AudioQueue のはず、ui だけ UIKit）
+2. iOS：実機で動かす（ビルドは通っている。Xcode が iPhone を認識すれば署名→インストールまで行ける）
 3. FFmpeg の設定ヘッダ（`ffmpeg_gen/config_*.h`）を OS ごとに見直す（今は Windows x64 用 + `#ifdef` 分岐）
 4. OpenH264（BSD）の SW エンコーダを LGPL ビルド用に
 5. `testdata/chicago.h264` が `.gitignore` の `*.h264` に引っかかって repo に入っていない

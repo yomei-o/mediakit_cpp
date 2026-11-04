@@ -8,6 +8,16 @@
 
 #include "mk_types.h"
 
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#if TARGET_OS_IPHONE
+// UIKit owns main() and the main thread, so the ui layer provides main(): it starts UIKit and
+// runs the program's main() on a thread of its own. Nothing else about the program changes.
+extern "C" int mk_ios_main(int argc, char** argv);
+#define main mk_ios_main
+#endif
+#endif
+
 namespace mk {
 
 class Window {

@@ -42,10 +42,13 @@ if(WIN32)
 elseif(ANDROID)
   add_library(mk_io STATIC io/android/mk_io_android.cpp)
   target_link_libraries(mk_io PUBLIC camera2ndk mediandk aaudio android log)
-elseif(APPLE)
-  add_library(mk_io STATIC io/mac/mk_io_mac.mm)
-  target_link_libraries(mk_io PUBLIC "-framework AVFoundation" "-framework AudioToolbox" "-framework CoreAudio"
+elseif(APPLE)  # macOS and iOS share this one
+  add_library(mk_io STATIC io/apple/mk_io_apple.mm)
+  target_link_libraries(mk_io PUBLIC "-framework AVFoundation" "-framework AudioToolbox"
                                      "-framework CoreMedia" "-framework CoreVideo" "-framework Foundation")
+  if(NOT IOS)
+    target_link_libraries(mk_io PUBLIC "-framework CoreAudio")  # the device list; iOS has none
+  endif()
 elseif(UNIX AND NOT APPLE AND NOT ANDROID)
   find_package(ALSA REQUIRED)
   add_library(mk_io STATIC io/linux/mk_io_linux.cpp)
@@ -81,6 +84,9 @@ elseif(ANDROID)
               ${ANDROID_NDK}/sources/android/native_app_glue/android_native_app_glue.c)
   target_include_directories(mk_ui PUBLIC ${ANDROID_NDK}/sources/android/native_app_glue)
   target_link_libraries(mk_ui PUBLIC mk_codec android jnigraphics log)
+elseif(IOS)
+  add_library(mk_ui STATIC ui/ios/mk_ui_ios.mm)
+  target_link_libraries(mk_ui PUBLIC "-framework UIKit" "-framework CoreGraphics" "-framework Foundation")
 elseif(APPLE)
   add_library(mk_ui STATIC ui/mac/mk_ui_mac.mm)
   target_link_libraries(mk_ui PUBLIC "-framework Cocoa" "-framework UniformTypeIdentifiers")
@@ -106,7 +112,7 @@ macro(mk_program name)
     target_compile_options(${name} PRIVATE /utf-8 /W3 /wd4244 /wd4267)
     target_compile_definitions(${name} PRIVATE _CRT_SECURE_NO_WARNINGS)
   endif()
-  if(APPLE)
+  if(APPLE AND NOT IOS)
     # TCC reads the usage strings out of the executable itself when there is no bundle
     target_link_options(${name} PRIVATE "SHELL:-sectcreate __TEXT __info_plist ${CMAKE_CURRENT_SOURCE_DIR}/tools/mac_info.plist")
     set_property(TARGET ${name} APPEND PROPERTY LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tools/mac_info.plist)
@@ -144,6 +150,12 @@ if(MK_BUILD_EXAMPLES AND TARGET mk_io AND TARGET mk_ui)
     target_link_libraries(mk_studio mk_pipeline mk_ui)
     if(MSVC)  # GUI programs that still use main()
       set_target_properties(mk_play mk_studio PROPERTIES LINK_FLAGS "/ENTRY:mainCRTStartup")
+    endif()
+    if(IOS)  # .app bundles, so they can be installed on a device or a simulator
+      set_target_properties(mk_play mk_studio PROPERTIES
+          MACOSX_BUNDLE TRUE
+          MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/tools/ios_info.plist.in
+          XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "org.mediakit.\${PRODUCT_NAME}")
     endif()
   endif()
 endif()

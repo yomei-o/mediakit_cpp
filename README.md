@@ -16,10 +16,10 @@ testdata/  chicago.h264 + chicago.aac（1280x720 30fps、415 秒）
 
 | | Windows | Linux | macOS | Android | iOS |
 |---|---|---|---|---|---|
-| io（カメラ・マイク・スピーカー） | ✓ Media Foundation + WASAPI | V4L2 + ALSA（ビルドのみ） | ✓ AVFoundation + AudioQueue | ✓ Camera2 NDK + AAudio | – |
-| codec | ✓ | ✓（WSL で codec_test 通過） | ✓ VideoToolbox | ✓ MediaCodec | – |
-| ui | ✓ Win32 + GDI | X11（ビルドのみ） | ✓ AppKit | ✓ NativeActivity + ANativeWindow | – |
-| pipeline | ✓ | ✓（疑似デバイスで録画→再生通過） | ✓ | ✓ | – |
+| io（カメラ・マイク・スピーカー） | ✓ Media Foundation + WASAPI | V4L2 + ALSA（ビルドのみ） | ✓ AVFoundation + AudioQueue | ✓ Camera2 NDK + AAudio | AVFoundation + AudioQueue（ビルドのみ） |
+| codec | ✓ | ✓（WSL で codec_test 通過） | ✓ VideoToolbox | ✓ MediaCodec | VideoToolbox（ビルドのみ） |
+| ui | ✓ Win32 + GDI | X11（ビルドのみ） | ✓ AppKit | ✓ NativeActivity + ANativeWindow | UIKit（ビルドのみ） |
+| pipeline | ✓ | ✓（疑似デバイスで録画→再生通過） | ✓ | ✓ | ビルドのみ |
 
 ## 使い方
 
@@ -149,6 +149,19 @@ Android のウィンドウには NDK に文字を描く手段が無いので、�
   呼ばなければ FFmpeg は NDK の MediaCodec を使う（それも無理なら SW にそのまま落ちる）。
 - カメラの結果は binder で返ってくるので、Java を持たないネイティブだけのプロセスでは
   `io` が `ABinderProcess_startThreadPool()` を自分で呼んでいる（API 29 以上）。
+
+iOS（実機 SDK とシミュレータ SDK のどちらもビルドが通る。署名は Xcode の Apple ID 任せ）：
+
+```sh
+cmake -S . -B build-ios -G Xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=iphoneos \
+      -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0
+tools/build_ios_app.sh mk_studio          # 署名して接続中の iPhone に入れる
+```
+
+UIKit が `main()` とメインスレッドを持っていくので、`ui` 側が `main()` を用意して
+`UIApplicationMain` を回し、プログラムの `main()` は別スレッドで走らせる。そのために `mk_ui.h` が
+iOS のときだけ `main` を `mk_ios_main` に付け替えるので、サンプルのソースはそのまま。
+ファイル選択のダイアログは使っていないので、保存先は `Documents`、読み込みはそこの最新ファイル。
 
 ## ライセンス
 
