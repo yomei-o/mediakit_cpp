@@ -119,7 +119,9 @@ FFmpeg の設定ヘッダ（`ffmpeg_gen/config_ffmpeg.h`）の作り直し
 - 確認：macOS arm64（`codec_test`、`--hwdec`、`--encoder libopenh264`、`mk_mux` 全部通過）、
   **macOS x86-64**（`-DCMAKE_OSX_ARCHITECTURES=x86_64` でビルドして Rosetta で実行、通過）、
   Android arm64 と iOS シミュレータ（ビルド）。x86-64 を clang でビルドできたので、Linux x86-64 も通るはず。
-  Windows と Linux の実機確認はまだ。
+  Windows（x64、MSVC）と Linux（WSL1 aarch64、g++ 9.4）でも 2026-11-04 にクリーンビルドして確認済み：
+  Windows は既定と OpenH264+x264 の両方、Linux は OpenH264+x264 でビルドでき、codec_test（h264_mf HW 57.8 dB・SW 45.4 dB、d3d11va、
+  OpenH264 48.0 dB、x264 46.2 dB）、疑似デバイスでの録画→再生、chicago の mk_mux が通る。
 
 ## 落とし穴
 
@@ -179,4 +181,4 @@ FFmpeg の設定ヘッダ（`ffmpeg_gen/config_ffmpeg.h`）の作り直し
 1. Linux 実機：V4L2（YUYV / MJPEG）、ALSA、X11 窓の確認（家の環境で）。Linux の HW エンコード（VA-API）
 2. iOS：実機で動かす（シミュレータでは一通り通った。実機なら 720p30 の実時間エンコードと
    カメラが測れる。Xcode が iPhone を認識するところが先）
-3. Windows と Linux で再ビルドして、設定ヘッダの作り直し（下）が効いているか確認する
+3. （済）Windows と Linux で再ビルドして、設定ヘッダの作り直しが効いていることを確認した
