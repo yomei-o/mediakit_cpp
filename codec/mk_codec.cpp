@@ -204,6 +204,10 @@ struct VideoEncoder::Impl {
             av_dict_set(&opts, "scenario", "camera_record", 0);
         } else if (!strcmp(enc_name, "h264_videotoolbox")) {
             av_dict_set(&opts, "realtime", "1", 0);
+        } else if (!strcmp(enc_name, "libx264")) {
+            av_dict_set(&opts, "preset", "veryfast", 0);
+            av_dict_set(&opts, "tune", "zerolatency", 0);
+            av_dict_set(&opts, "forced-idr", "1", 0);
         } else if (!strcmp(enc_name, "libopenh264")) {
             av_dict_set(&opts, "allow_skip_frames", "0", 0);
         }
@@ -272,6 +276,9 @@ bool VideoEncoder::open(const VideoEncoderConfig& cfg) {
 #else
         names = {"h264_vaapi", "h264_v4l2m2m"};
 #endif
+        // software: x264 (when built in, GPL) is the best one; asked for software -> try it first
+        if (cfg.hardware) names.push_back("libx264");
+        else names.insert(names.begin(), "libx264");
         names.push_back("libopenh264");
     }
     std::string errs;

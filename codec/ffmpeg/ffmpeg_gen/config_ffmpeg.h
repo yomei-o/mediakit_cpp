@@ -594,7 +594,6 @@
 #define CONFIG_LIBDAVS2 0
 #define CONFIG_LIBRUBBERBAND 0
 #define CONFIG_LIBVIDSTAB 0
-#define CONFIG_LIBX264 0
 #define CONFIG_LIBX265 0
 #define CONFIG_LIBXAVS 0
 #define CONFIG_LIBXAVS2 0
@@ -749,7 +748,13 @@
 #define CONFIG_SMALL 0
 #define CONFIG_STATIC 0
 #define CONFIG_SWSCALE_ALPHA 1
+#ifdef MK_WITH_X264  /* linking x264 makes the build GPL */
+#define CONFIG_GPL 1
+#define CONFIG_LIBX264 1
+#else
 #define CONFIG_GPL 0
+#define CONFIG_LIBX264 0
+#endif
 #define CONFIG_NONFREE 0
 #define CONFIG_VERSION3 0
 #define CONFIG_AVDEVICE 1

@@ -173,6 +173,9 @@ static const FFCodec * const codec_list[] = {
     //&ff_aac_mf_encoder,
     //&ff_ac3_mf_encoder,
     &ff_h264_mf_encoder,
+#ifdef MK_WITH_X264
+    &ff_libx264_encoder,
+#endif
     //&ff_hevc_mf_encoder,
     //&ff_mp3_mf_encoder,
 
