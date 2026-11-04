@@ -181,4 +181,3 @@ FFmpeg の設定ヘッダ（`ffmpeg_gen/config_ffmpeg.h`）の作り直し
 1. Linux 実機：V4L2（YUYV / MJPEG）、ALSA、X11 窓の確認（家の環境で）。Linux の HW エンコード（VA-API）
 2. iOS：実機で動かす（シミュレータでは一通り通った。実機なら 720p30 の実時間エンコードと
    カメラが測れる。Xcode が iPhone を認識するところが先）
-3. （済）Windows と Linux で再ビルドして、設定ヘッダの作り直しが効いていることを確認した
