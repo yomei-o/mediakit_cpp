@@ -95,6 +95,32 @@ OpenH264 2.6.0（SW エンコーダ、BSD 2-clause）
   VideoToolbox 49.9 dB）。`libavcodec/libopenh264enc.c` は平坦化で `internal.h` を指したままだった（＝
   一度もビルドされていなかった）ので `internal_avcodec.h` に直した。
 
+FFmpeg の設定ヘッダ（`ffmpeg_gen/config_ffmpeg.h`）の作り直し
+- 元は MSVC + x64 のマシンで `configure` が吐いた答えがそのまま入っていて、他の OS は後から
+  `#ifdef` を足して継ぎ当てていた。アーキテクチャまわりをコンパイラの定義済みマクロから
+  決めるように書き換えて、どの OS でビルドしても自分のことを正しく言うようにした。
+- `ARCH_X86` / `ARCH_X86_32` / `ARCH_X86_64` は `__x86_64__` / `_M_X64` / `__i386__` から決める。
+  以前は「`_WIN32` なら x86-64、それ以外は x86 ではない」だったので、Linux の x86-64 では
+  ARCH_X86 が 0、Windows on ARM では 1 という嘘になっていた。
+- `ARCH_AARCH64` / `ARCH_ARM` は ARM 向けでも 0 のまま（理由はヘッダのコメントに書いた）。
+  平坦化した木に `.S` が無く、aarch64 の `*_init.c` も `ffmpeg.cmake` に入っていないので、
+  名乗ると汎用の dsp から存在しない初期化関数を呼んでしまう。x86 の方は元の作者が
+  `ff_*_init_x86()` の呼び出しを全部コメントアウト済みなので、正直に 1 で問題ない。
+- `HAVE_MMX` / `HAVE_SSE*` / `HAVE_AVX*` などは**全ターゲットで 0** にした。これは
+  「このビルドがその命令を吐けるか」を表す値で、`HAVE_X86ASM` も `HAVE_INLINE_ASM` も 0、
+  x86 の `.c` も一つもビルドしていない以上、答えは 0 しかない。読んでいるのは
+  libswscale のフィルタ整列の調整と警告、`rectangle.h` の `av_assert2` の整列定数だけ。
+- `HAVE_RDTSC` は MSVC のときだけ 1。`libavutil/x86_timer.h` のその分岐は `<intrin.h>` と
+  `__rdtsc()`、つまり MSVC の書き方で、clang / gcc の x86 ビルドはこれで即死する
+  （実際 ARCH_X86 を正しくした途端に macOS の x86-64 ビルドが落ちて見つかった）。
+- `HAVE_ALIGNED_STACK` / `HAVE_FAST_64BIT` は 64 ビットかどうかで決める。
+  `HAVE_MACH_ABSOLUTE_TIME` は Apple で 1（configure が Mac を見ていなかっただけ）。
+  `OS_NAME` / `CC_IDENT` / `FFMPEG_CONFIGURATION` / `SLIBSUF` も OS ごとに。
+- 確認：macOS arm64（`codec_test`、`--hwdec`、`--encoder libopenh264`、`mk_mux` 全部通過）、
+  **macOS x86-64**（`-DCMAKE_OSX_ARCHITECTURES=x86_64` でビルドして Rosetta で実行、通過）、
+  Android arm64（ビルド）。x86-64 を clang でビルドできたので、Linux x86-64 も通るはず。
+  Windows と Linux の実機確認はまだ。
+
 ## 落とし穴
 
 - `VideoFrame` は data[] が自分の buffer を指す。コピー・ムーブでポインタを付け替える。
@@ -153,4 +179,4 @@ OpenH264 2.6.0（SW エンコーダ、BSD 2-clause）
 1. Linux 実機：V4L2（YUYV / MJPEG）、ALSA、X11 窓の確認（家の環境で）。Linux の HW エンコード（VA-API）
 2. iOS：実機で動かす（シミュレータでは一通り通った。実機なら 720p30 の実時間エンコードと
    カメラが測れる。Xcode が iPhone を認識するところが先）
-3. FFmpeg の設定ヘッダ（`ffmpeg_gen/config_*.h`）を OS ごとに見直す（今は Windows x64 用 + `#ifdef` 分岐）
+3. Windows と Linux で再ビルドして、設定ヘッダの作り直し（下）が効いているか確認する
