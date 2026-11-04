@@ -118,7 +118,7 @@ FFmpeg の設定ヘッダ（`ffmpeg_gen/config_ffmpeg.h`）の作り直し
   `OS_NAME` / `CC_IDENT` / `FFMPEG_CONFIGURATION` / `SLIBSUF` も OS ごとに。
 - 確認：macOS arm64（`codec_test`、`--hwdec`、`--encoder libopenh264`、`mk_mux` 全部通過）、
   **macOS x86-64**（`-DCMAKE_OSX_ARCHITECTURES=x86_64` でビルドして Rosetta で実行、通過）、
-  Android arm64（ビルド）。x86-64 を clang でビルドできたので、Linux x86-64 も通るはず。
+  Android arm64 と iOS シミュレータ（ビルド）。x86-64 を clang でビルドできたので、Linux x86-64 も通るはず。
   Windows と Linux の実機確認はまだ。
 
 ## 落とし穴
