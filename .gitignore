@@ -2,3 +2,4 @@ build/
 build-*/
 *.mp4
 *.h264
+*.apk

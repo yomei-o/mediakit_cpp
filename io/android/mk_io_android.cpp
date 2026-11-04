@@ -35,9 +35,9 @@ void start_binder_thread_pool() {
     static const bool once = [] {
         void* lib = dlopen("libbinder_ndk.so", RTLD_NOW);
         if (!lib) return false;
-        auto set_max = (void (*)(uint32_t))dlsym(lib, "ABinderProcess_setThreadPoolMaxThreadCount");
+        // Only start it. Asking for a maximum aborts the process when the pool is already
+        // running with a larger one, which is what a Java app's framework has set up.
         auto start = (void (*)())dlsym(lib, "ABinderProcess_startThreadPool");
-        if (set_max) set_max(4);
         if (start) start();
         return start != nullptr;
     }();

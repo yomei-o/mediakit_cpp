@@ -51,7 +51,9 @@ Android（A301KC、arm64、Android 13、MediaTek。NDK r27 / API 26 でビルド
 - 実カメラ（背面 1280x720）＋マイクで 8 秒録画→再生：239 フレーム、落ちゼロ、A/V ずれ 195 ms。
   マイクは 4 秒で 188160/192000 サンプル。`--input`、`--h264` の PacketSink、mk_mux も通過。
 - エミュレータ（API 36、arm64）でも疑似デバイスと virtualscene カメラで同じところまで通過。
-- ui はまだ無い（SurfaceView / ANativeWindow）。今あるのは adb から動かすコマンドラインの実行ファイルだけ。
+- ui は NativeActivity + ANativeWindow。`tools/build_apk.sh` で Java の無い APK を作って実機に入れ、
+  プレビュー → 録画（MediaCodec、181 フレーム・落ち 0）→ 保存 → 再生（0:40）→ カメラに戻る、まで
+  画面を見て確認した。BACK で main() が返り、カメラも解放される。
 
 ## 落とし穴
 
@@ -96,13 +98,18 @@ Android（A301KC、arm64、Android 13、MediaTek。NDK r27 / API 26 でビルド
   1 にすると aarch64 の *_init.c が NEON のシンボルを参照してリンクが通らない。
 - エンコーダが EAGAIN を返したときは、ドレインしながら何度か出し直す。1 回しか再試行しない実装では
   MediaCodec の深いパイプラインでフレームの 3 分の 1 を黙って捨てていた。
+- Android：binder のスレッドプールは `ABinderProcess_startThreadPool()` だけ呼ぶ。
+  `setThreadPoolMaxThreadCount()` は、既に大きい上限で動いているプロセス（＝普通のアプリ）だと
+  「cannot be shrunk after starting」で abort する。
+- Android の ui：NDK には文字を描く手段が無いので、ボタンとステータスだけ JNI で
+  `android.graphics.Paint` に描かせて、出てきた ARGB を自前の画面に合成している。
+  ファイル選択のダイアログも無いので、保存はアプリの外部ファイル領域、読み込みはそこの最新ファイル。
 
 ## 次にやること
 
-1. Android の ui（SurfaceView / ANativeWindow + NativeActivity の APK）。io / codec / pipeline は実機で通過済み
-2. Linux 実機：V4L2（YUYV / MJPEG）、ALSA、X11 窓の確認（家の環境で）。Linux の HW エンコード（VA-API）
-3. iOS（io は macOS 版とほぼ同じ AVFoundation + AudioQueue のはず、ui だけ UIKit）
-4. FFmpeg の設定ヘッダ（`ffmpeg_gen/config_*.h`）を OS ごとに見直す（今は Windows x64 用 + `#ifdef` 分岐）
-5. OpenH264（BSD）の SW エンコーダを LGPL ビルド用に
-6. `testdata/chicago.h264` が `.gitignore` の `*.h264` に引っかかって repo に入っていない
+1. Linux 実機：V4L2（YUYV / MJPEG）、ALSA、X11 窓の確認（家の環境で）。Linux の HW エンコード（VA-API）
+2. iOS（io は macOS 版とほぼ同じ AVFoundation + AudioQueue のはず、ui だけ UIKit）
+3. FFmpeg の設定ヘッダ（`ffmpeg_gen/config_*.h`）を OS ごとに見直す（今は Windows x64 用 + `#ifdef` 分岐）
+4. OpenH264（BSD）の SW エンコーダを LGPL ビルド用に
+5. `testdata/chicago.h264` が `.gitignore` の `*.h264` に引っかかって repo に入っていない
    （README と mk_mux の例はこれを指している）。`!testdata/*.h264` を足すか、例を直すか

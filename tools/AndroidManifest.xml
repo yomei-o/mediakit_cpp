@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- NativeActivity: there is no Java in this app. android.app.lib_name names the shared library
+     that build_apk.sh puts in; mk_ui provides its android_main(). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="org.mediakit.MK_NAME">
+  <uses-permission android:name="android.permission.CAMERA"/>
+  <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+  <uses-feature android:name="android.hardware.camera" android:required="false"/>
+  <application android:label="MK_NAME" android:hasCode="false">
+    <activity android:name="android.app.NativeActivity"
+              android:label="MK_NAME"
+              android:configChanges="orientation|keyboardHidden|screenSize"
+              android:exported="true">
+      <meta-data android:name="android.app.lib_name" android:value="MK_NAME"/>
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

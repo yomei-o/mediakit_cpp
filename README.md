@@ -18,7 +18,7 @@ testdata/  chicago.h264 + chicago.aac（1280x720 30fps、415 秒）
 |---|---|---|---|---|---|
 | io（カメラ・マイク・スピーカー） | ✓ Media Foundation + WASAPI | V4L2 + ALSA（ビルドのみ） | ✓ AVFoundation + AudioQueue | ✓ Camera2 NDK + AAudio | – |
 | codec | ✓ | ✓（WSL で codec_test 通過） | ✓ VideoToolbox | ✓ MediaCodec | – |
-| ui | ✓ Win32 + GDI | X11（ビルドのみ） | ✓ AppKit | – | – |
+| ui | ✓ Win32 + GDI | X11（ビルドのみ） | ✓ AppKit | ✓ NativeActivity + ANativeWindow | – |
 | pipeline | ✓ | ✓（疑似デバイスで録画→再生通過） | ✓ | ✓ | – |
 
 ## 使い方
@@ -122,7 +122,7 @@ build/mk_record a.mp4 3 --test && build/player_test a.mp4
 `tools/mac_info.plist`（`NSCameraUsageDescription` など）を `-sectcreate __TEXT __info_plist` で
 実行ファイルに埋め込んである。これが無いと、カメラに触れた瞬間に OS がプロセスを殺す。
 
-Android（NDK r27、API 26 以上。ui はまだ無いのでコマンドラインの実行ファイルだけができる）：
+Android（NDK r27、API 26 以上）：
 
 ```sh
 NDK=$ANDROID_HOME/ndk/27.0.12077973
@@ -131,7 +131,19 @@ cmake -S . -B build-android -DCMAKE_TOOLCHAIN_FILE=$NDK/build/cmake/android.tool
 cmake --build build-android -j
 adb push build-android/codec_test build-android/mk_record build-android/player_test /data/local/tmp/
 adb shell "cd /data/local/tmp && chmod 755 * && ./codec_test --hwdec"
+
+tools/build_apk.sh build-android/libmk_studio.so      # NativeActivity の APK を作る（Java は無し）
+adb install -r build-android/mk_studio.apk
+adb shell am start -n org.mediakit.mk_studio/android.app.NativeActivity
 ```
+
+`mk_studio` と `mk_play` は Android では共有ライブラリになる。NativeActivity がそれを読み込んで
+`android_main()` を呼び、`ui` 側の `android_main()` がプログラムの `main()` を呼ぶので、サンプルの
+ソースはそのまま。カメラとマイクの許可も `ui` が起動時に JNI で聞く。
+
+Android のウィンドウには NDK に文字を描く手段が無いので、ボタンとステータスの文字だけ JNI 経由で
+`android.graphics.Paint` に描かせている。ファイル選択のダイアログも無いので、`choose_save_file()` は
+アプリの外部ファイル領域のパスを返し、`choose_open_file()` はそこにある一番新しいファイルを返す。
 
 - MediaCodec を Java から使うアプリでは `mk::set_java_vm(vm)` を `JNI_OnLoad` で一度呼ぶ。
   呼ばなければ FFmpeg は NDK の MediaCodec を使う（それも無理なら SW にそのまま落ちる）。
