@@ -16,10 +16,10 @@ testdata/  chicago.h264 + chicago.aac（1280x720 30fps、415 秒）
 
 | | Windows | Linux | macOS | Android | iOS |
 |---|---|---|---|---|---|
-| io（カメラ・マイク・スピーカー） | ✓ Media Foundation + WASAPI | V4L2 + ALSA（ビルドのみ） | ✓ AVFoundation + AudioQueue | ✓ Camera2 NDK + AAudio | AVFoundation + AudioQueue（ビルドのみ） |
-| codec | ✓ | ✓（WSL で codec_test 通過） | ✓ VideoToolbox | ✓ MediaCodec | VideoToolbox（ビルドのみ） |
-| ui | ✓ Win32 + GDI | X11（ビルドのみ） | ✓ AppKit | ✓ NativeActivity + ANativeWindow | UIKit（ビルドのみ） |
-| pipeline | ✓ | ✓（疑似デバイスで録画→再生通過） | ✓ | ✓ | ビルドのみ |
+| io（カメラ・マイク・スピーカー） | ✓ Media Foundation + WASAPI | V4L2 + ALSA（ビルドのみ） | ✓ AVFoundation + AudioQueue | ✓ Camera2 NDK + AAudio | ✓ AVFoundation + AudioQueue（カメラは実機待ち） |
+| codec | ✓ | ✓（WSL で codec_test 通過） | ✓ VideoToolbox | ✓ MediaCodec | ✓ VideoToolbox |
+| ui | ✓ Win32 + GDI | X11（ビルドのみ） | ✓ AppKit | ✓ NativeActivity + ANativeWindow | ✓ UIKit |
+| pipeline | ✓ | ✓（疑似デバイスで録画→再生通過） | ✓ | ✓ | ✓（シミュレータ） |
 
 ## 使い方
 
@@ -156,6 +156,18 @@ iOS（実機 SDK とシミュレータ SDK のどちらもビルドが通る。�
 cmake -S . -B build-ios -G Xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=iphoneos \
       -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0
 tools/build_ios_app.sh mk_studio          # 署名して接続中の iPhone に入れる
+```
+
+シミュレータで動かすなら：
+
+```sh
+cmake -S . -B build-ios-sim -G Xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=iphonesimulator \
+      -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO
+cmake --build build-ios-sim --config Release
+xcrun simctl install booted build-ios-sim/Release-iphonesimulator/mk_studio.app
+xcrun simctl launch booted org.mediakit.mk_studio --test     # シミュレータにカメラは無い
+# コンソールのテストはバンドルの中身をそのまま動かせる
+xcrun simctl spawn booted build-ios-sim/Release-iphonesimulator/codec_test.app/codec_test --hwdec
 ```
 
 UIKit が `main()` とメインスレッドを持っていくので、`ui` 側が `main()` を用意して

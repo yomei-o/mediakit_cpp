@@ -55,12 +55,24 @@ Android（A301KC、arm64、Android 13、MediaTek。NDK r27 / API 26 でビルド
   プレビュー → 録画（MediaCodec、181 フレーム・落ち 0）→ 保存 → 再生（0:40）→ カメラに戻る、まで
   画面を見て確認した。BACK で main() が返り、カメラも解放される。
 
-iOS（まだ実機で動かせていない）
-- 実機 SDK とシミュレータ SDK のどちらでもビルドとリンクが通るところまで。io は macOS と同じ
-  `io/apple/mk_io_apple.mm`（`AVAudioSession` の設定だけ iOS のときに入る）、ui は `ui/ios/mk_ui_ios.mm`。
+iOS（シミュレータ iOS 26.3、arm64。実機はまだ）
+- io は macOS と同じ `io/apple/mk_io_apple.mm`（`AVAudioSession` の設定だけ iOS のときに入る）、
+  ui は `ui/ios/mk_ui_ios.mm`。実機 SDK とシミュレータ SDK のどちらでもビルドが通る。
+- `codec_test` も `codec_test --hwdec` も通過：VideoToolbox のエンコード（PSNR 45.9 dB）とデコード、
+  AAC 440 Hz の成分比 1.000、RGB 変換の平均差 0.23。`mk_mux` も通過。
+  コンソールのテストは `xcrun simctl spawn <udid> <bundle>/codec_test` でそのまま動く。
+- `mk_studio --test` を入れて画面で確認：UIKit の窓、疑似カメラのプレビュー 30 fps、ボタンとステータス、
+  録画（h264_videotoolbox）→ Documents に保存、まで動いた。マイクの許可ダイアログも出る
+  （`simctl privacy grant microphone` はこのランタイムでは効かないので、手で押す必要がある）。
+- ただし **シミュレータの VideoToolbox はソフトウェアで、720p30 の実時間エンコードに追いつかない**。
+  疑似カメラから 30 fps を流すと大半のフレームが落ちて `player_test` が落ちる。640x360 の `codec_test` は
+  実時間ではないので全部通る。ここは実機で測り直すこと。
 - 実機に入れるには署名が要る。Xcode に Apple ID を足せば無料の Personal Team で足りる
   （`tools/build_ios_app.sh` が Team ID を Xcode の plist から拾って `-allowProvisioningUpdates` で回す）。
-  手元では iPhone 16（iOS 18.6.2）が Xcode から「オフライン」のままで、プロビジョニングまで進めていない。
+  手元の iPhone 16（iOS 18.6.2）は USB では列挙されるのに lockdown / CoreDevice から全く見えず
+  （`/var/db/lockdown` が空、`devicectl` が「No devices found」）、ケーブル直挿し・usbmuxd 再起動・
+  位置情報とプライバシーのリセット・端末再起動・古いペアリング記録の `devicectl manage unpair` を
+  試しても復活しなかった。プロビジョニングはまだ一度も通していない。
 
 ## 落とし穴
 
@@ -118,7 +130,8 @@ iOS（まだ実機で動かせていない）
 ## 次にやること
 
 1. Linux 実機：V4L2（YUYV / MJPEG）、ALSA、X11 窓の確認（家の環境で）。Linux の HW エンコード（VA-API）
-2. iOS：実機で動かす（ビルドは通っている。Xcode が iPhone を認識すれば署名→インストールまで行ける）
+2. iOS：実機で動かす（シミュレータでは一通り通った。実機なら 720p30 の実時間エンコードと
+   カメラが測れる。Xcode が iPhone を認識するところが先）
 3. FFmpeg の設定ヘッダ（`ffmpeg_gen/config_*.h`）を OS ごとに見直す（今は Windows x64 用 + `#ifdef` 分岐）
 4. OpenH264（BSD）の SW エンコーダを LGPL ビルド用に
 5. `testdata/chicago.h264` が `.gitignore` の `*.h264` に引っかかって repo に入っていない

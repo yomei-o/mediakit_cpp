@@ -152,10 +152,14 @@ if(MK_BUILD_EXAMPLES AND TARGET mk_io AND TARGET mk_ui)
       set_target_properties(mk_play mk_studio PROPERTIES LINK_FLAGS "/ENTRY:mainCRTStartup")
     endif()
     if(IOS)  # .app bundles, so they can be installed on a device or a simulator
-      set_target_properties(mk_play mk_studio PROPERTIES
-          MACOSX_BUNDLE TRUE
-          MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/tools/ios_info.plist.in
-          XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "org.mediakit.\${PRODUCT_NAME}")
+      foreach(prog mk_play mk_studio)
+        set_target_properties(${prog} PROPERTIES
+            MACOSX_BUNDLE TRUE
+            MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/tools/ios_info.plist.in
+            MACOSX_BUNDLE_BUNDLE_NAME ${prog}
+            MACOSX_BUNDLE_GUI_IDENTIFIER org.mediakit.${prog}
+            XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER org.mediakit.${prog})
+      endforeach()
     endif()
   endif()
 endif()
