@@ -44,7 +44,16 @@ Linux（WSL2、x86-64、Ubuntu 20.04、g++ 9.3、カーネル 6.18、2026-11-05�
   - fps は 11〜15 程度。C505 の `exposure_dynamic_framerate=1`（暗いと fps を落とす）を 0 にすると 11.5→15.4 fps。
   - YUYV は USB/IP 経由だとフレームが来ない（320x240 でも）。MJPEG を優先するので影響なし。
   - WSLg の X サーバには組み込みフォントしか無く、ボタンの日本語が文字化けする（直すなら Xft）。
-  - WSL には ALSA のデバイスが無く、マイク・スピーカーは未確認（WSLg の PulseAudio 経由なら試せるはず）。
+- 音声：C505 のマイクは WSL2 の ALSA に直接見える（`modprobe snd-usb-audio`）。スピーカーは WSLg の
+  PulseAudio へ（`libasound2-plugins`）。`~/.asoundrc` で default を振り分ける：
+  `pcm.!default { type asym; playback.pcm "pulse"; capture.pcm "plughw:Webcam" }`
+  - `mk_devices --grab`：マイク 4 秒で 191040 サンプル（48 kHz、99.5%）。
+  - `player_test`（chicago の先頭 15 秒）：ALL OK（15.2 s、最大ずれ 254〜284 ms）。初回だけ 19.7 s かかって FAIL
+    （WSLg の音声出力の立ち上がり待ちと思われる、未確認）。
+  - `audio_loopback_test`（新規）：スピーカー→空気→マイクで 777 Hz を検出、+46 dB、3.00 s。
+    440 Hz だと約 30 dB 弱く、50 Hz の電源ハムの 9 倍音（450 Hz）も混ざるので、既定を 777 Hz にした。
+  - デバイス一覧（`snd_device_name_hint`）に出力専用やプラグインもマイクとして並ぶ（取り込みには影響なし）。
+  - WSL はしばらく使わないと VM ごと止まり、USB の attach が外れる（`usbipd attach` をやり直す）。
   - FFmpeg が MJPEG のフレームごとに `unable to decode APP fields` / `deprecated pixel format` を出す（実害なし）。
 
 macOS（Mac mini、Apple Silicon、macOS 15.7、Xcode 26.3）
@@ -197,6 +206,6 @@ FFmpeg の設定ヘッダ（`ffmpeg_gen/config_ffmpeg.h`）の作り直し
 
 ## 次にやること
 
-1. Linux：ALSA の確認（V4L2 MJPEG と X11 窓は WSL2 で確認済み）。Linux の HW エンコード（VA-API）
+1. Linux：V4L2 MJPEG・ALSA・X11 窓は WSL2 で確認済み。残りは X11 の日本語（Xft）。Linux の HW エンコード（VA-API）
 2. iOS：実機で動かす（シミュレータでは一通り通った。実機なら 720p30 の実時間エンコードと
    カメラが測れる。Xcode が iPhone を認識するところが先）

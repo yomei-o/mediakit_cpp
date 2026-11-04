@@ -17,7 +17,7 @@ codec/ffmpeg/, codec/x264/, codec/openh264/  平坦化して同梱した第三�
 
 | | Windows | Linux | macOS | Android | iOS |
 |---|---|---|---|---|---|
-| io（カメラ・マイク・スピーカー） | ✓ Media Foundation + WASAPI | ✓ V4L2（WSL2 で USB カメラ確認）+ ALSA（未確認） | ✓ AVFoundation + AudioQueue | ✓ Camera2 NDK + AAudio | ✓ AVFoundation + AudioQueue（カメラは実機待ち） |
+| io（カメラ・マイク・スピーカー） | ✓ Media Foundation + WASAPI | ✓ V4L2 + ALSA（WSL2 で USB カメラとそのマイク、WSLg のスピーカーを確認） | ✓ AVFoundation + AudioQueue | ✓ Camera2 NDK + AAudio | ✓ AVFoundation + AudioQueue（カメラは実機待ち） |
 | codec | ✓ | ✓（WSL で codec_test 通過） | ✓ VideoToolbox | ✓ MediaCodec | ✓ VideoToolbox |
 | ui | ✓ Win32 + GDI | ✓ X11（WSL2 の WSLg で確認） | ✓ AppKit | ✓ NativeActivity + ANativeWindow | ✓ UIKit |
 | pipeline | ✓ | ✓（疑似デバイスで録画→再生通過） | ✓ | ✓ | ✓（シミュレータ） |
@@ -111,6 +111,7 @@ Linux（`libx11-dev libasound2-dev` が必要。OS の H.264 エンコーダは�
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DMK_WITH_X264=ON
 cmake --build build -j
+build/audio_loopback_test       # 既定のスピーカーで 777 Hz を鳴らし、既定のマイクで聞こえるかを検査（実機が要る）
 ```
 
 macOS（Xcode のコマンドラインツールだけで足りる）：
