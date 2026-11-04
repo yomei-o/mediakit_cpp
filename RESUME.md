@@ -35,6 +35,18 @@ Linux（WSL1、aarch64、g++ 9.4）
   WSL1 には /dev/video も音のデバイスも X も無い（Parallels 上の ARM Windows では WSL2 が使えない：
   `HCS_E_HYPERV_NOT_INSTALLED`）。実機での確認は別の Linux マシンで。
 
+Linux（WSL2、x86-64、Ubuntu 20.04、g++ 9.3、カーネル 6.18、2026-11-05）
+- USB カメラ（Logitech C505）を usbipd-win で WSL2 に渡して確認（`usbipd bind --busid <id> --force`
+  → `usbipd attach --wsl --busid <id>`、WSL 側で `modprobe uvcvideo`）。
+- `mk_devices --grab`：/dev/video0 を見つけ、1280x720 MJPEG で取り込み通過（33 フレーム）。
+- `mk_studio`：WSLg の X11 窓にカメラのライブ映像（MJPEG 展開→BGRA→XPutImage）、約 15 fps。
+- 分かったこと
+  - fps は 11〜15 程度。C505 の `exposure_dynamic_framerate=1`（暗いと fps を落とす）を 0 にすると 11.5→15.4 fps。
+  - YUYV は USB/IP 経由だとフレームが来ない（320x240 でも）。MJPEG を優先するので影響なし。
+  - WSLg の X サーバには組み込みフォントしか無く、ボタンの日本語が文字化けする（直すなら Xft）。
+  - WSL には ALSA のデバイスが無く、マイク・スピーカーは未確認（WSLg の PulseAudio 経由なら試せるはず）。
+  - FFmpeg が MJPEG のフレームごとに `unable to decode APP fields` / `deprecated pixel format` を出す（実害なし）。
+
 macOS（Mac mini、Apple Silicon、macOS 15.7、Xcode 26.3）
 - `codec_test`：VideoToolbox エンコード PSNR 49.9 dB、HW デコード（videotoolbox）も同じ。x264 は 46.1 dB。
   AAC は 440 Hz の成分比 1.000、RGB 変換の平均差 0.42（x264 では 0.02）。
@@ -185,6 +197,6 @@ FFmpeg の設定ヘッダ（`ffmpeg_gen/config_ffmpeg.h`）の作り直し
 
 ## 次にやること
 
-1. Linux 実機：V4L2（YUYV / MJPEG）、ALSA、X11 窓の確認（家の環境で）。Linux の HW エンコード（VA-API）
+1. Linux：ALSA の確認（V4L2 MJPEG と X11 窓は WSL2 で確認済み）。Linux の HW エンコード（VA-API）
 2. iOS：実機で動かす（シミュレータでは一通り通った。実機なら 720p30 の実時間エンコードと
    カメラが測れる。Xcode が iPhone を認識するところが先）

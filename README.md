@@ -17,9 +17,9 @@ codec/ffmpeg/, codec/x264/, codec/openh264/  平坦化して同梱した第三�
 
 | | Windows | Linux | macOS | Android | iOS |
 |---|---|---|---|---|---|
-| io（カメラ・マイク・スピーカー） | ✓ Media Foundation + WASAPI | V4L2 + ALSA（ビルドのみ） | ✓ AVFoundation + AudioQueue | ✓ Camera2 NDK + AAudio | ✓ AVFoundation + AudioQueue（カメラは実機待ち） |
+| io（カメラ・マイク・スピーカー） | ✓ Media Foundation + WASAPI | ✓ V4L2（WSL2 で USB カメラ確認）+ ALSA（未確認） | ✓ AVFoundation + AudioQueue | ✓ Camera2 NDK + AAudio | ✓ AVFoundation + AudioQueue（カメラは実機待ち） |
 | codec | ✓ | ✓（WSL で codec_test 通過） | ✓ VideoToolbox | ✓ MediaCodec | ✓ VideoToolbox |
-| ui | ✓ Win32 + GDI | X11（ビルドのみ） | ✓ AppKit | ✓ NativeActivity + ANativeWindow | ✓ UIKit |
+| ui | ✓ Win32 + GDI | ✓ X11（WSL2 の WSLg で確認） | ✓ AppKit | ✓ NativeActivity + ANativeWindow | ✓ UIKit |
 | pipeline | ✓ | ✓（疑似デバイスで録画→再生通過） | ✓ | ✓ | ✓（シミュレータ） |
 
 ## 使い方
