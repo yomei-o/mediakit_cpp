@@ -14,6 +14,9 @@ option(MK_BUILD_TESTS "build tests" ON)
 # x264 is GPL: ON makes every program linked with mediakit GPL. OFF keeps the build LGPL
 # (H.264 encoding then uses the OS encoders only).
 option(MK_WITH_X264 "build the x264 software H.264 encoder (GPL)" OFF)
+# OpenH264 is BSD 2-clause, so this one keeps the build LGPL. Slower and a little worse than
+# x264 at the same bitrate, but it can be shipped in a closed product.
+option(MK_WITH_OPENH264 "build the OpenH264 software H.264 encoder (BSD)" OFF)
 
 # ---------------------------------------------------------------- codec (common to every OS)
 include(codec/ffmpeg/ffmpeg.cmake)
@@ -26,6 +29,17 @@ if(MK_WITH_X264)
   target_include_directories(mk_avcodec PRIVATE codec/x264)
   target_link_libraries(mk_avcodec PUBLIC mk_x264)
   message(STATUS "mediakit: x264 enabled - the result is GPL")
+endif()
+if(MK_WITH_OPENH264)
+  include(codec/openh264/openh264.cmake)
+  foreach(t mk_avutil mk_avcodec mk_avformat mk_swscale mk_swresample)
+    target_compile_definitions(${t} PRIVATE MK_WITH_OPENH264)
+  endforeach()
+  target_sources(mk_avcodec PRIVATE
+      codec/ffmpeg/libavcodec/libopenh264.c codec/ffmpeg/libavcodec/libopenh264enc.c)
+  target_include_directories(mk_avcodec PRIVATE codec/openh264)
+  target_link_libraries(mk_avcodec PUBLIC mk_openh264)
+  message(STATUS "mediakit: OpenH264 enabled (BSD)")
 endif()
 
 add_library(mk_codec STATIC codec/mk_codec.cpp)

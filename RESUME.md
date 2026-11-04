@@ -5,6 +5,7 @@
 元は `SafieGoproProxy_reenc_002.zip`（Android + Windows の GoPro → RTSP → 再エンコード → Safie 送信）。
 Safie 接続部分（spyderClientCoreLib、curl、libressl、msgpack、libuv、rtsp、device/）は全部捨てた。
 使ったのは平坦化済みの FFmpeg 7.1.1（`codec/ffmpeg/`）と x264（`codec/x264/`、任意）だけ。
+OpenH264（`codec/openh264/`、任意）は後から足した。
 Safie への出力は公開できないので入れない。`PacketSink` を実装すれば外から（非公開の別リポで）いつでもつなげられる。
 
 ## 方針
@@ -15,7 +16,7 @@ Safie への出力は公開できないので入れない。`PacketSink` を実�
   （io を codec に依存させないため）。
 - 時刻は全部 `mk::now_us()`（steady_clock）。WASAPI の QPC 時刻、MF のデバイス時刻、V4L2 の MONOTONIC はここに換算。
 - エンコーダは OS のもの（Windows: h264_mf、macOS/iOS: h264_videotoolbox、Android: h264_mediacodec、
-  Linux: h264_vaapi / h264_v4l2m2m（未ビルド））、SW は x264（GPL、任意）か OpenH264（未）。
+  Linux: h264_vaapi / h264_v4l2m2m（未ビルド））、SW は OpenH264（BSD、任意）か x264（GPL、任意）。
 - 各キーフレームの前に SPS/PPS を必ず付ける（ストリームの途中からでも、PacketSink の先でもデコードできるように）。
 - AAC エンコーダは入力の時刻に穴があったら無音で埋める（USB マイクの取りこぼしで音の時間軸が縮まないように）。
 
@@ -80,6 +81,20 @@ iOS（シミュレータ iOS 26.3、arm64。実機はまだ）
   動いており、モバイルデバイスだけを止める USB デバイス制御が効いていると見るのが自然。
   実機で試すには情シスに例外を依頼するか、管理外の Mac を使うこと。プロビジョニングはまだ一度も通していない。
 
+OpenH264 2.6.0（SW エンコーダ、BSD 2-clause）
+- `codec/openh264/` に平坦化して同梱。エンコーダだけ（common + encoder/core + encoder/plus + processing）で
+  166 ファイル、decoder は入れていない（FFmpeg 側のデコーダで足りるので）。アセンブラ（`.S` / `.asm`）は
+  x264 や FFmpeg と同じく一つも持ってきていない＝全部 C++ で動く。
+- 元の `#include` はほぼ全部ベースネーム指定だったので、平坦化しても名前の衝突は無く書き換え不要だった。
+  直したのは processing の `#include "../denoise/denoise.h"` 系と `#include <wels/codec_api.h>` だけ。
+- `version_gen.h` は本来 git describe から生成されるので、2.6.0 固定の中身を一度だけ書いて同梱した
+  （`GENERATED_VERSION_HEADER` を付けないと「openh264 default: 1.4」と名乗ってしまう）。
+- `-DMK_WITH_OPENH264=ON` で `mk_openh264` と FFmpeg の `libopenh264.c` / `libopenh264enc.c` が入る。
+  x264 と違って BSD なので `CONFIG_GPL` は 0 のまま＝LGPL ビルドで SW エンコーダが使える。
+- macOS で `codec_test --encoder libopenh264` 通過：PSNR 48.0 dB（同じテストで x264 46.1 dB、
+  VideoToolbox 49.9 dB）。`libavcodec/libopenh264enc.c` は平坦化で `internal.h` を指したままだった（＝
+  一度もビルドされていなかった）ので `internal_avcodec.h` に直した。
+
 ## 落とし穴
 
 - `VideoFrame` は data[] が自分の buffer を指す。コピー・ムーブでポインタを付け替える。
@@ -139,4 +154,3 @@ iOS（シミュレータ iOS 26.3、arm64。実機はまだ）
 2. iOS：実機で動かす（シミュレータでは一通り通った。実機なら 720p30 の実時間エンコードと
    カメラが測れる。Xcode が iPhone を認識するところが先）
 3. FFmpeg の設定ヘッダ（`ffmpeg_gen/config_*.h`）を OS ごとに見直す（今は Windows x64 用 + `#ifdef` 分岐）
-4. OpenH264（BSD）の SW エンコーダを LGPL ビルド用に

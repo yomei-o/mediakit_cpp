@@ -10,6 +10,7 @@ ui/        映像を表示するウィンドウ（OS ごと）
 pipeline/  io + codec の組み合わせ（Recorder / Player / FileSource、UI には依存しない）
 common/    3 層で共有する型（VideoFrame / AudioFrame / Packet）
 testdata/  chicago.h264 + chicago.aac（1280x720 30fps、415 秒）
+codec/ffmpeg/, codec/x264/, codec/openh264/  平坦化して同梱した第三者ソース
 ```
 
 ## 対応状況
@@ -61,11 +62,14 @@ mk::FrameConverter conv;  conv.convert(frame, bgra, mk::PixelFormat::BGRA, 640, 
 
 | | HW | SW |
 |---|---|---|
-| H.264 エンコード | Windows: Media Foundation（GPU の MFT）／macOS: VideoToolbox／Android: MediaCodec | Microsoft の SW MFT、または x264（`-DMK_WITH_X264=ON`） |
+| H.264 エンコード | Windows: Media Foundation（GPU の MFT）／macOS: VideoToolbox／Android: MediaCodec | Microsoft の SW MFT、OpenH264（`-DMK_WITH_OPENH264=ON`）、x264（`-DMK_WITH_X264=ON`） |
 | H.264 デコード | Windows: D3D11VA／macOS: VideoToolbox／Android: MediaCodec（`VideoDecoder::open(true)`） | FFmpeg |
 
 - `VideoEncoderConfig::hardware`（既定 true）。HW が無いマシンでは自動で SW になる。`encoder = "libx264"` のように名前で指定もできる。
 - **x264 は GPL**。`MK_WITH_X264=ON` でビルドした exe は GPL になる。既定（OFF）は LGPL の部品だけ。
+- **OpenH264 は BSD 2-clause**なので `MK_WITH_OPENH264=ON` でも LGPL のまま。HW エンコーダが無い環境に
+  SW エンコーダを入れたいが GPL は困る、という場合はこちら（`encoder = "libopenh264"`）。
+  同じビットレートでの画質は x264 と同等〜少し上（`codec_test` で 48.0 dB、x264 46.1 dB、VideoToolbox 49.9 dB）。
 
 ### デバイスが無い環境
 
@@ -93,7 +97,7 @@ mk::FrameConverter conv;  conv.convert(frame, bgra, mk::PixelFormat::BGRA, 640, 
 Windows（VS 2022 の x64 開発者プロンプト）：
 
 ```sh
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release        # x264 も使うなら -DMK_WITH_X264=ON
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release        # SW エンコーダも要るなら -DMK_WITH_OPENH264=ON（BSD）か -DMK_WITH_X264=ON（GPL）
 cmake --build build
 build/codec_test.exe            # エンコード→MP4→読み込み→デコード→RGB を画質（PSNR）と音（440 Hz）で検査
 build/codec_test.exe --sw --hwdec
@@ -179,4 +183,6 @@ iOS のときだけ `main` を `mk_ios_main` に付け替えるので、サン�
 
 - `codec/ffmpeg/` は FFmpeg 7.1.1 のソースを 1 フォルダずつに平坦化したもの（LGPL 2.1 以降）。
 - `codec/x264/` は x264（GPL 2 以降）。`MK_WITH_X264=ON` のときだけ使う。
+- `codec/openh264/` は OpenH264 2.6.0（BSD 2-clause、`codec/openh264/LICENSE`）をエンコーダだけ平坦化したもの。
+  `MK_WITH_OPENH264=ON` のときだけ使う。
 - H.264 / AAC には特許がある。OS のエンコーダ（Media Foundation など）を使う分は OS 側でライセンスされている。

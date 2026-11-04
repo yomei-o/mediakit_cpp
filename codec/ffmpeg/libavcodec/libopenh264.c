@@ -20,8 +20,8 @@
  */
 
 #include <string.h>
-#include <wels/codec_api.h>
-#include <wels/codec_ver.h>
+#include "codec_api.h"
+#include "codec_ver.h"
 
 #include "error.h"
 #include "log_avutil.h"

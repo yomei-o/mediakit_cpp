@@ -667,7 +667,11 @@
 #define CONFIG_LIBMP3LAME 0
 #define CONFIG_LIBMYSOFA 0
 #define CONFIG_LIBOPENCV 0
+#ifdef MK_WITH_OPENH264  /* mediakit: optional, BSD - stays LGPL */
+#define CONFIG_LIBOPENH264 1
+#else
 #define CONFIG_LIBOPENH264 0
+#endif
 #define CONFIG_LIBOPENJPEG 0
 #define CONFIG_LIBOPENMPT 0
 #define CONFIG_LIBOPENVINO 0

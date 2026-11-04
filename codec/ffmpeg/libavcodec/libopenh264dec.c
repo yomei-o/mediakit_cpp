@@ -19,8 +19,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#include <wels/codec_api.h>
-#include <wels/codec_ver.h>
+#include "codec_api.h"
+#include "codec_ver.h"
 
 #include "common_avutil.h"
 #include "fifo.h"
