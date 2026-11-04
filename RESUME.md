@@ -70,16 +70,23 @@ iOS（シミュレータ iOS 26.3、arm64。実機はまだ）
   実時間ではないので全部通る。ここは実機で測り直すこと。
 - 実機に入れるには署名が要る。Xcode に Apple ID を足せば無料の Personal Team で足りる
   （`tools/build_ios_app.sh` が Team ID を Xcode の plist から拾って `-allowProvisioningUpdates` で回す）。
-  ただし **この開発用 Mac では iPhone を USB で繋げない**。USB バス上では正常に見えている
-  （`ioreg -p IOUSB` に `iPhone@...`、`bNumConfigurations = 5`、matched / active）のに、
-  コンフィギュレーションが一つも選択されずインタフェースが生えないので、`usbmuxd` も lockdown も
-  CoreDevice も端末を掴めない（Finder にも出ない、`devicectl` は「No devices found」）。
-  ケーブル交換（Type-C）・ポート変更（ハブ経由をやめて直挿し）・`usbmuxd` と `remotepairingd` の再起動・
-  iPhone 再起動・位置情報とプライバシーのリセット・`devicectl manage unpair` を全部試して無効。
-  同じ Mac の USB カメラやオーディオ I/F は普通に動くので USB 全面禁止ではない。
-  この Mac は Jamf（safieteam.jamfcloud.com）管理下で CrowdStrike Falcon の Endpoint Security 拡張が
-  動いており、モバイルデバイスだけを止める USB デバイス制御が効いていると見るのが自然。
-  実機で試すには情シスに例外を依頼するか、管理外の Mac を使うこと。プロビジョニングはまだ一度も通していない。
+  2026-11-04 の時点で実機にはまだ入れられていない。経緯：
+  - 最初は **USB で端末を掴めなかった**（`ioreg -p IOUSB` に `iPhone@...` が matched / active で出るのに
+    コンフィギュレーションが選択されずインタフェースが生えない＝`usbmuxd` も lockdown も CoreDevice も
+    届かない）。ケーブル・ポート・デーモン再起動・端末再起動・プライバシーのリセットは全部無効だった。
+    その後に解消し、今は `pairingState: paired` / `tunnelState: connected` まで通る。
+  - 次に iPhone 側の**デベロッパモード**が off だった。これも解消済み（`developerModeStatus: enabled`）。
+  - 現在の詰まりは **Xcode と iOS のバージョン差**。iPhone は iOS 26.6.2、この Mac の Xcode は 26.3 で
+    iOS 26.2 SDK、DDI は iOS 26.3.1 までしか無い。`devicectl` は
+    「The DDI's CoreDevice content is too old」「Failed to find a DDI that can be used」で止まり、
+    `xcodebuild -downloadPlatform iOS` を叩いても 26.3.1 までしか落ちてこない。
+    Xcode が端末を開発用と見なせないので、無料の Personal Team への**端末登録も走らない**
+    （`-allowProvisioningUpdates` 付きでも "Your team has no devices from which to generate a
+    provisioning profile"）。
+  - 抜けるには macOS を Tahoe 26.x 以降に上げて Xcode を 26.4 以降にするしかない
+    （Xcode 26.4 から macOS Tahoe 26.2 以降が要る。この Mac は macOS 15.7.4）。
+    `softwareupdate --list-full-installers` には Tahoe 26.7.1 も macOS 27 も出ている。
+    mediakit 側の問題ではないので、OS を上げる判断がつくまで実機確認は保留。
 
 OpenH264 2.6.0（SW エンコーダ、BSD 2-clause）
 - `codec/openh264/` に平坦化して同梱。エンコーダだけ（common + encoder/core + encoder/plus + processing）で
