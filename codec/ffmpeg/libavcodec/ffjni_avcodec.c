@@ -30,7 +30,7 @@
 #include "mem.h"
 
 #include "config_ffmpeg.h"
-#include "jni.h"
+#include "jni_avcodec.h"
 #include "ffjni.h"
 
 static JavaVM *java_vm;

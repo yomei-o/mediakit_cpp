@@ -1644,6 +1644,15 @@ if(WIN32)  # Media Foundation H.264 encoder, D3D11VA hardware decoding
   target_sources(mk_avcodec PRIVATE ${MK_FF_DIR}/libavcodec/dxva2.c ${MK_FF_DIR}/libavcodec/d3d11va.c ${MK_FF_DIR}/libavcodec/dxva2_h264.c)
   target_sources(mk_avutil PRIVATE ${MK_FF_DIR}/libavutil/hwcontext_d3d11va.c)
 endif()
+if(ANDROID)  # MediaCodec H.264 encoder / decoder (needs av_jni_set_java_vm from the app)
+  target_sources(mk_avcodec PRIVATE ${MK_FF_DIR}/libavcodec/mediacodecenc.c ${MK_FF_DIR}/libavcodec/mediacodecdec.c
+                                    ${MK_FF_DIR}/libavcodec/mediacodecdec_common.c ${MK_FF_DIR}/libavcodec/mediacodec_wrapper.c
+                                    ${MK_FF_DIR}/libavcodec/mediacodec_surface.c ${MK_FF_DIR}/libavcodec/mediacodec_sw_buffer.c
+                                    ${MK_FF_DIR}/libavcodec/mediacodec.c ${MK_FF_DIR}/libavcodec/ffjni_avcodec.c)
+  target_sources(mk_avutil PRIVATE ${MK_FF_DIR}/libavutil/hwcontext_mediacodec.c)
+  target_link_libraries(mk_avutil PUBLIC android log)
+  target_link_libraries(mk_avcodec PUBLIC mediandk)
+endif()
 if(APPLE)  # VideoToolbox H.264 encoder and hardware decoding
   target_sources(mk_avcodec PRIVATE ${MK_FF_DIR}/libavcodec/videotoolboxenc.c ${MK_FF_DIR}/libavcodec/videotoolbox.c)
   target_sources(mk_avutil PRIVATE ${MK_FF_DIR}/libavutil/hwcontext_videotoolbox.c)

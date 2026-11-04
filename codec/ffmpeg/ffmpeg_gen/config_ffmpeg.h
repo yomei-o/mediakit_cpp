@@ -15,11 +15,9 @@
 #define SLIBSUF ".dll"
 #define HAVE_MMX2 HAVE_MMXEXT
 #define SWS_MAX_FILTER_SIZE 256
-#ifdef __ANDROID__
-#define ARCH_AARCH64 1
-#else
+/* mediakit: the flattened tree carries no .S / .asm, so every architecture builds as plain C
+   (the aarch64 *_init.c files would reference NEON symbols that are not here). */
 #define ARCH_AARCH64 0
-#endif
 #define ARCH_ALPHA 0
 #define ARCH_ARM 0
 #define ARCH_AVR32 0
@@ -705,7 +703,11 @@
 #define CONFIG_LIBZMQ 0
 #define CONFIG_LIBZVBI 0
 #define CONFIG_LV2 0
+#ifdef __ANDROID__  /* mediakit */
+#define CONFIG_MEDIACODEC 1
+#else
 #define CONFIG_MEDIACODEC 0
+#endif
 #define CONFIG_OPENAL 0
 #define CONFIG_OPENGL 0
 #define CONFIG_OPENSSL 0

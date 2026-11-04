@@ -588,6 +588,11 @@ static int mediacodec_dec_parse_video_format(AVCodecContext *avctx, MediaCodecDe
     }
 
     /* Optional fields */
+    /* mediakit: AMEDIAFORMAT_GET_INT32 leaves the field alone when the key is absent, and the
+     * NDK "crop" rect below is only read while crop_right / crop_bottom are still zero. Some
+     * decoders report a nonsense crop in the first output format and the real one only after
+     * the format changes; without this reset the first, wrong, rect would stick forever. */
+    s->crop_top = s->crop_bottom = s->crop_left = s->crop_right = 0;
     AMEDIAFORMAT_GET_INT32(s->crop_top,    "crop-top",    0);
     AMEDIAFORMAT_GET_INT32(s->crop_bottom, "crop-bottom", 0);
     AMEDIAFORMAT_GET_INT32(s->crop_left,   "crop-left",   0);

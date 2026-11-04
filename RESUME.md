@@ -14,7 +14,7 @@ Safie への出力は公開できないので入れない。`PacketSink` を実�
 - MJPEG しか出さないカメラ（Linux の UVC など）は io が MJPEG のまま渡し、codec の FrameConverter が展開する
   （io を codec に依存させないため）。
 - 時刻は全部 `mk::now_us()`（steady_clock）。WASAPI の QPC 時刻、MF のデバイス時刻、V4L2 の MONOTONIC はここに換算。
-- エンコーダは OS のもの（Windows: h264_mf、macOS/iOS: h264_videotoolbox、Android: h264_mediacodec（未）、
+- エンコーダは OS のもの（Windows: h264_mf、macOS/iOS: h264_videotoolbox、Android: h264_mediacodec、
   Linux: h264_vaapi / h264_v4l2m2m（未ビルド））、SW は x264（GPL、任意）か OpenH264（未）。
 - 各キーフレームの前に SPS/PPS を必ず付ける（ストリームの途中からでも、PacketSink の先でもデコードできるように）。
 - AAC エンコーダは入力の時刻に穴があったら無音で埋める（USB マイクの取りこぼしで音の時間軸が縮まないように）。
@@ -45,6 +45,14 @@ macOS（Mac mini、Apple Silicon、macOS 15.7、Xcode 26.3）
 - ウィンドウは AppKit。ボタン・ステータス・映像の描画をアプリ自身で PNG に焼いて確認した
   （画面収録の許可が無いと `screencapture` は壁紙しか返さないので、外からのスクショでは確認できない）。
 
+Android（A301KC、arm64、Android 13、MediaTek。NDK r27 / API 26 でビルド）
+- `codec_test --hwdec`：MediaCodec のエンコードもデコードも通過、PSNR 47.4 dB、440 Hz 成分比 1.000、
+  RGB 変換の平均差 0.02。x264 ビルドでも 46.1 dB で通過。
+- 実カメラ（背面 1280x720）＋マイクで 8 秒録画→再生：239 フレーム、落ちゼロ、A/V ずれ 195 ms。
+  マイクは 4 秒で 188160/192000 サンプル。`--input`、`--h264` の PacketSink、mk_mux も通過。
+- エミュレータ（API 36、arm64）でも疑似デバイスと virtualscene カメラで同じところまで通過。
+- ui はまだ無い（SurfaceView / ANativeWindow）。今あるのは adb から動かすコマンドラインの実行ファイルだけ。
+
 ## 落とし穴
 
 - `VideoFrame` は data[] が自分の buffer を指す。コピー・ムーブでポインタを付け替える。
@@ -69,10 +77,29 @@ macOS（Mac mini、Apple Silicon、macOS 15.7、Xcode 26.3）
 - 平坦化で `libavutil/time.h` は `time_avutil.h` になったのに 16 個のファイルが `#include "time.h"` のままで、
   システムのヘッダを拾っていた。gcc は暗黙宣言の警告で通してしまい、`av_gettime()` の int64_t が
   int に切り詰められていた（clang は拒否する）。全部直した。
+- Android：**Camera2 の結果は binder で返ってくる**。Java のあるアプリなら binder のスレッドプールは
+  既に回っているが、ネイティブだけのプロセスでは誰も起動しないので、カメラは開けて
+  `setRepeatingRequest` も成功するのに 1 フレームも来ない。`io` が `libbinder_ndk.so` を dlopen して
+  `ABinderProcess_startThreadPool()` を呼んでいる。mk_record だけ動いて mk_devices が動かなかったのは、
+  mk_record が MediaCodec / AAudio を先に触っていて、そちらがプールを起こしていたから。
+- Android：`AV_CODEC_FLAG_GLOBAL_HEADER` を付けると FFmpeg が MediaCodec エンコーダの前に
+  `extract_extradata` の bsf を挟み、**パケットが 1 つも出てこなくなる**。MediaCodec は codec-config を
+  最初のパケットの頭に付けてくるので、この OS だけ GLOBAL_HEADER を付けない。
+- Android：MediaCodec のデコーダは開く前に解像度と SPS/PPS が要る。`VideoDecoder` は SW で開いておいて、
+  最初のキーフレームが来たところで差し替える。H.264 パーサは `PARSER_FLAG_COMPLETE_FRAMES` を立てないと
+  次のアクセスユニットが来るまで解像度を返さない。
+- Android：FFmpeg の `mediacodecdec_common.c` は、最初の出力フォーマットに入っていた crop 矩形を
+  保持したまま二度と読み直さない（`AMEDIAFORMAT_GET_INT32` はキーが無いと値を変えず、NDK の "crop" は
+  crop_right が 0 のときしか読まれない）。この端末は最初に出鱈目な crop(0,0,318,238) を返してくるので、
+  640x360 が 319x239 になっていた。毎回クリアするように直してある。
+- 平坦化ツリーにはアセンブリが 1 つも入っていないので、`ARCH_AARCH64` は 0（C だけでビルドする）。
+  1 にすると aarch64 の *_init.c が NEON のシンボルを参照してリンクが通らない。
+- エンコーダが EAGAIN を返したときは、ドレインしながら何度か出し直す。1 回しか再試行しない実装では
+  MediaCodec の深いパイプラインでフレームの 3 分の 1 を黙って捨てていた。
 
 ## 次にやること
 
-1. Android（NDK Camera2 + AAudio + MediaCodec、ui は SurfaceView/ANativeWindow）
+1. Android の ui（SurfaceView / ANativeWindow + NativeActivity の APK）。io / codec / pipeline は実機で通過済み
 2. Linux 実機：V4L2（YUYV / MJPEG）、ALSA、X11 窓の確認（家の環境で）。Linux の HW エンコード（VA-API）
 3. iOS（io は macOS 版とほぼ同じ AVFoundation + AudioQueue のはず、ui だけ UIKit）
 4. FFmpeg の設定ヘッダ（`ffmpeg_gen/config_*.h`）を OS ごとに見直す（今は Windows x64 用 + `#ifdef` 分岐）

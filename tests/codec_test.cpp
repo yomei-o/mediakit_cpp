@@ -37,6 +37,7 @@ static void make_frame(mk::VideoFrame& f, int w, int h, int i) {
 }
 
 static double psnr_y(const mk::VideoFrame& a, const mk::VideoFrame& b) {
+    if (a.width != b.width || a.height != b.height || a.empty() || b.empty()) return 0;  // not comparable
     double se = 0;
     for (int y = 0; y < a.height; ++y)
         for (int x = 0; x < a.width; ++x) {

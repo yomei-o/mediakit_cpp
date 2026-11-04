@@ -44,7 +44,8 @@ int main(int argc, char** argv) {
             t1 = f.pts_us;
             ++n;
         });
-        for (int i = 0; i < 50 && n < 31; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // Android cameras can take several seconds to produce the first frame, so wait a while.
+        for (int i = 0; i < 150 && n < 31; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(100));
         cam.stop();
         std::printf("frames %d, measured %.1f fps, %s\n", n, n > 1 ? (n - 1) * 1e6 / (double)(t1 - t0) : 0.0, cam.error().c_str());
         mk::Microphone mic;

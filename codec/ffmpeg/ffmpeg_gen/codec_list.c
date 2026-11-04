@@ -178,6 +178,9 @@ static const FFCodec * const codec_list[] = {
 #ifdef __APPLE__
     &ff_h264_videotoolbox_encoder,
 #endif
+#ifdef __ANDROID__
+    &ff_h264_mediacodec_encoder,
+#endif
 #ifdef MK_WITH_X264
     &ff_libx264_encoder,
 #endif
@@ -266,6 +269,9 @@ static const FFCodec * const codec_list[] = {
     &ff_h263i_decoder,
     &ff_h263p_decoder,
     &ff_h264_decoder,
+#ifdef __ANDROID__
+    &ff_h264_mediacodec_decoder,
+#endif
     &ff_hap_decoder,
     &ff_hevc_decoder,
     &ff_hnm4_video_decoder,

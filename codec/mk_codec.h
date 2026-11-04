@@ -11,6 +11,11 @@
 
 namespace mk {
 
+// Android only: hand FFmpeg the app's JavaVM so MediaCodec can be reached (call it once at
+// startup, e.g. from JNI_OnLoad). Without it H.264 falls back to software everywhere.
+// Returns false on the other systems, where there is nothing to do.
+bool set_java_vm(void* vm);
+
 struct VideoEncoderConfig {
     int width = 1280, height = 720;
     int fps = 30;

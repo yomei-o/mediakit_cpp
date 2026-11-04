@@ -16,10 +16,10 @@ testdata/  chicago.h264 + chicago.aac（1280x720 30fps、415 秒）
 
 | | Windows | Linux | macOS | Android | iOS |
 |---|---|---|---|---|---|
-| io（カメラ・マイク・スピーカー） | ✓ Media Foundation + WASAPI | V4L2 + ALSA（ビルドのみ） | ✓ AVFoundation + AudioQueue | – | – |
-| codec | ✓ | ✓（WSL で codec_test 通過） | ✓ VideoToolbox | – | – |
+| io（カメラ・マイク・スピーカー） | ✓ Media Foundation + WASAPI | V4L2 + ALSA（ビルドのみ） | ✓ AVFoundation + AudioQueue | ✓ Camera2 NDK + AAudio | – |
+| codec | ✓ | ✓（WSL で codec_test 通過） | ✓ VideoToolbox | ✓ MediaCodec | – |
 | ui | ✓ Win32 + GDI | X11（ビルドのみ） | ✓ AppKit | – | – |
-| pipeline | ✓ | ✓（疑似デバイスで録画→再生通過） | ✓ | – | – |
+| pipeline | ✓ | ✓（疑似デバイスで録画→再生通過） | ✓ | ✓ | – |
 
 ## 使い方
 
@@ -61,8 +61,8 @@ mk::FrameConverter conv;  conv.convert(frame, bgra, mk::PixelFormat::BGRA, 640, 
 
 | | HW | SW |
 |---|---|---|
-| H.264 エンコード | Windows: Media Foundation（GPU の MFT）／macOS: VideoToolbox | Microsoft の SW MFT、または x264（`-DMK_WITH_X264=ON`） |
-| H.264 デコード | Windows: D3D11VA／macOS: VideoToolbox（`VideoDecoder::open(true)`） | FFmpeg |
+| H.264 エンコード | Windows: Media Foundation（GPU の MFT）／macOS: VideoToolbox／Android: MediaCodec | Microsoft の SW MFT、または x264（`-DMK_WITH_X264=ON`） |
+| H.264 デコード | Windows: D3D11VA／macOS: VideoToolbox／Android: MediaCodec（`VideoDecoder::open(true)`） | FFmpeg |
 
 - `VideoEncoderConfig::hardware`（既定 true）。HW が無いマシンでは自動で SW になる。`encoder = "libx264"` のように名前で指定もできる。
 - **x264 は GPL**。`MK_WITH_X264=ON` でビルドした exe は GPL になる。既定（OFF）は LGPL の部品だけ。
@@ -121,6 +121,22 @@ build/mk_record a.mp4 3 --test && build/player_test a.mp4
 カメラとマイクは初回に許可を聞かれる。バンドルの無いコマンドラインの実行ファイルでも聞けるよう、
 `tools/mac_info.plist`（`NSCameraUsageDescription` など）を `-sectcreate __TEXT __info_plist` で
 実行ファイルに埋め込んである。これが無いと、カメラに触れた瞬間に OS がプロセスを殺す。
+
+Android（NDK r27、API 26 以上。ui はまだ無いのでコマンドラインの実行ファイルだけができる）：
+
+```sh
+NDK=$ANDROID_HOME/ndk/27.0.12077973
+cmake -S . -B build-android -DCMAKE_TOOLCHAIN_FILE=$NDK/build/cmake/android.toolchain.cmake \
+      -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-26 -DCMAKE_BUILD_TYPE=Release
+cmake --build build-android -j
+adb push build-android/codec_test build-android/mk_record build-android/player_test /data/local/tmp/
+adb shell "cd /data/local/tmp && chmod 755 * && ./codec_test --hwdec"
+```
+
+- MediaCodec を Java から使うアプリでは `mk::set_java_vm(vm)` を `JNI_OnLoad` で一度呼ぶ。
+  呼ばなければ FFmpeg は NDK の MediaCodec を使う（それも無理なら SW にそのまま落ちる）。
+- カメラの結果は binder で返ってくるので、Java を持たないネイティブだけのプロセスでは
+  `io` が `ABinderProcess_startThreadPool()` を自分で呼んでいる（API 29 以上）。
 
 ## ライセンス
 

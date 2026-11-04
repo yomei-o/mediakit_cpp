@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <mutex>
 
 extern "C" {
@@ -17,9 +18,36 @@ extern "C" {
 #include "libavutil/opt.h"
 #include "libswresample/swresample.h"
 #include "libswscale/swscale.h"
+#ifdef __ANDROID__
+#include "libavcodec/jni_avcodec.h"
+#endif
 }
 
 namespace mk {
+
+// MK_FF_LOG=debug / verbose / trace turns FFmpeg's own logging up; handy when a platform codec
+// misbehaves. Applied the first time anything in the codec layer is opened.
+void apply_log_level() {
+    static const bool once = [] {
+        const char* v = getenv("MK_FF_LOG");
+        if (!v) return true;
+        if (!strcmp(v, "trace")) av_log_set_level(AV_LOG_TRACE);
+        else if (!strcmp(v, "debug")) av_log_set_level(AV_LOG_DEBUG);
+        else if (!strcmp(v, "verbose")) av_log_set_level(AV_LOG_VERBOSE);
+        else if (!strcmp(v, "quiet")) av_log_set_level(AV_LOG_QUIET);
+        return true;
+    }();
+    (void)once;
+}
+
+bool set_java_vm(void* vm) {
+#ifdef __ANDROID__
+    return av_jni_set_java_vm(vm, nullptr) == 0;
+#else
+    (void)vm;
+    return false;
+#endif
+}
 
 namespace {
 
@@ -250,7 +278,11 @@ struct VideoEncoder::Impl {
             for (const AVPixelFormat* f = codec->pix_fmts; *f != AV_PIX_FMT_NONE; ++f) nv12 = nv12 || *f == AV_PIX_FMT_NV12;
             if (!nv12) ctx->pix_fmt = AV_PIX_FMT_YUV420P;
         }
-        ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;  // SPS/PPS into extradata (MP4 needs them)
+        // SPS/PPS into extradata (MP4 needs them). Not for MediaCodec: the flag makes FFmpeg put an
+        // extract_extradata bitstream filter in front of the encoder, and no packet ever comes out
+        // of it. MediaCodec prepends its codec-config buffer to the first packet anyway, so the
+        // parameter sets arrive in band and Mp4Writer learns them from the first keyframe.
+        if (strcmp(enc_name, "h264_mediacodec")) ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
         AVDictionary* opts = nullptr;
         if (!strcmp(enc_name, "h264_mf")) {
             av_dict_set(&opts, "hw_encoding", cfg.hardware ? "1" : "0", 0);
@@ -314,6 +346,7 @@ VideoEncoder::VideoEncoder() : p_(new Impl) {}
 VideoEncoder::~VideoEncoder() { p_->close(); }
 
 bool VideoEncoder::open(const VideoEncoderConfig& cfg) {
+    apply_log_level();
     p_->close();
     p_->cfg = cfg;
     p_->err.clear();
@@ -385,16 +418,26 @@ bool VideoEncoder::encode(const VideoFrame& in, std::vector<Packet>& out) {
     if (p_->force_key) f->flags |= AV_FRAME_FLAG_KEY;
     else f->flags &= ~AV_FRAME_FLAG_KEY;
     p_->force_key = false;
-    int r = avcodec_send_frame(p_->ctx, f);
-    if (r < 0 && r != AVERROR(EAGAIN)) {
+    // A full encoder answers EAGAIN: drain it and offer the frame again. MediaCodec keeps a deep
+    // pipeline and says EAGAIN often, so one retry is not enough -- a single retry silently lost
+    // a third of the frames on Android.
+    bool ok = true;
+    int r = AVERROR(EAGAIN);
+    int attempt = 0;
+    for (; attempt < 64; ++attempt) {
+        r = avcodec_send_frame(p_->ctx, f);
+        if (r != AVERROR(EAGAIN)) break;
+        if (!p_->receive(out)) return false;
+    }
+    if (r == AVERROR(EAGAIN)) {
+        p_->err = "encoder stayed full; frame dropped";
+        return true;  // the caller keeps going; the recorder counts it as a drop
+    }
+    if (r < 0) {
         p_->err = "send_frame: " + av_err(r);
         return false;
     }
-    bool ok = p_->receive(out);
-    if (r == AVERROR(EAGAIN)) {  // the encoder was full: it has drained now, send again
-        r = avcodec_send_frame(p_->ctx, f);
-        ok = p_->receive(out) && ok;
-    }
+    ok = p_->receive(out);
     return ok;
 }
 
@@ -575,6 +618,7 @@ const std::string& AudioEncoder::error() const { return p_->err; }
 
 struct VideoDecoder::Impl {
     AVCodecContext* ctx = nullptr;
+    bool want_mediacodec = false;  // Android: swap the software decoder for MediaCodec at the first keyframe
     AVPacket* pkt = nullptr;
     AVFrame* frame = nullptr;
     AVFrame* sw = nullptr;           // hardware frames are copied down into this
@@ -623,6 +667,54 @@ struct VideoDecoder::Impl {
         name = av_hwdevice_get_type_name(type);
         return true;
     }
+    // Android: the first keyframe carries the SPS/PPS and the size MediaCodec needs. Swap the
+    // software decoder for it; if anything goes wrong, keep decoding in software.
+    void try_mediacodec(const Packet& in) {
+        want_mediacodec = false;
+        std::vector<uint8_t> ps = h264_extract_parameter_sets(in.data.data(), in.data.size());
+        const AVCodec* codec = avcodec_find_decoder_by_name("h264_mediacodec");
+        if (ps.empty() || !codec) {
+            name = "software";
+            return;
+        }
+        int w = 0, h = 0;
+        AVCodecParserContext* parser = av_parser_init(AV_CODEC_ID_H264);
+        if (parser) {
+            // without this the parser waits for the next access unit before it reports the size
+            parser->flags |= PARSER_FLAG_COMPLETE_FRAMES;
+            AVCodecContext* probe = avcodec_alloc_context3(avcodec_find_decoder(AV_CODEC_ID_H264));
+            uint8_t* o = nullptr;
+            int on = 0;
+            av_parser_parse2(parser, probe, &o, &on, in.data.data(), (int)in.data.size(), AV_NOPTS_VALUE, AV_NOPTS_VALUE, 0);
+            w = parser->width, h = parser->height;
+            avcodec_free_context(&probe);
+            av_parser_close(parser);
+        }
+        if (w <= 0 || h <= 0) {
+            name = "software";
+            return;
+        }
+        AVCodecContext* c = avcodec_alloc_context3(codec);
+        c->pkt_timebase = kUs;
+        c->width = w, c->height = h;
+        c->extradata = (uint8_t*)av_mallocz(ps.size() + AV_INPUT_BUFFER_PADDING_SIZE);
+        if (!c->extradata) {
+            avcodec_free_context(&c);
+            name = "software";
+            return;
+        }
+        memcpy(c->extradata, ps.data(), ps.size());
+        c->extradata_size = (int)ps.size();
+        if (avcodec_open2(c, codec, nullptr) < 0) {  // no MediaCodec for H.264 on this device
+            avcodec_free_context(&c);
+            name = "software";
+            return;
+        }
+        avcodec_free_context(&ctx);
+        ctx = c;
+        name = "mediacodec";
+    }
+
     bool receive(std::vector<VideoFrame>& out) {
         for (;;) {
             int r = avcodec_receive_frame(ctx, frame);
@@ -657,8 +749,17 @@ VideoDecoder::VideoDecoder() : p_(new Impl) {}
 VideoDecoder::~VideoDecoder() { p_->close(); }
 
 bool VideoDecoder::open(bool hardware) {
+    apply_log_level();
     p_->close();
     p_->name = "software";
+    // On Android the hardware decoder is a codec of its own, not an hwaccel on the software one.
+    // It has to be configured with the size and the parameter sets, which only the first keyframe
+    // carries, so the software decoder starts and decode() swaps it in when that frame arrives.
+    p_->want_mediacodec = false;
+#ifdef __ANDROID__
+    p_->want_mediacodec = hardware && avcodec_find_decoder_by_name("h264_mediacodec") != nullptr;
+    if (p_->want_mediacodec) p_->name = "mediacodec";
+#endif
     const AVCodec* codec = avcodec_find_decoder(AV_CODEC_ID_H264);
     if (!codec) {
         p_->err = "H.264 decoder not built in";
@@ -671,7 +772,7 @@ bool VideoDecoder::open(bool hardware) {
     // which shows up as latency and as bursts after a seek / at the end of a file.
     p_->ctx->thread_type = FF_THREAD_SLICE;
     p_->ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
-    if (hardware && !p_->setup_hw(codec)) {
+    if (hardware && !p_->want_mediacodec && !p_->setup_hw(codec)) {
         av_buffer_unref(&p_->hw_dev);
         p_->hw_fmt = AV_PIX_FMT_NONE;  // software decoding, as if hardware had not been asked for
     }
@@ -688,6 +789,7 @@ bool VideoDecoder::open(bool hardware) {
 
 bool VideoDecoder::decode(const Packet& in, std::vector<VideoFrame>& out) {
     if (!p_->ctx) return false;
+    if (p_->want_mediacodec && in.keyframe) p_->try_mediacodec(in);
     av_new_packet(p_->pkt, (int)in.data.size());
     memcpy(p_->pkt->data, in.data.data(), in.data.size());
     p_->pkt->pts = in.pts_us;
