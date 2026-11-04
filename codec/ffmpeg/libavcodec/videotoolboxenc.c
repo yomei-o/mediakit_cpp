@@ -32,7 +32,7 @@
 #include "pixdesc.h"
 #include "hwcontext_videotoolbox.h"
 #include "codec_internal.h"
-#include "internal.h"
+#include "internal_avcodec.h"
 #include <pthread.h>
 #include "atsc_a53.h"
 #include "encode.h"

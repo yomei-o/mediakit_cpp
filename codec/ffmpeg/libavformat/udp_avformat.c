@@ -35,7 +35,7 @@
 #include "intreadwrite.h"
 #include "opt.h"
 #include "log_avutil.h"
-#include "time.h"
+#include "time_avutil.h"
 #include "network.h"
 #include "os_support.h"
 #include "url_avformat.h"

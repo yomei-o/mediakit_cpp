@@ -32,7 +32,7 @@
 #include "mem.h"
 #include "log_avutil.h"
 #include "dict_avutil.h"
-#include "time.h"
+#include "time_avutil.h"
 #include "imgutils.h"
 
 #include "avcodec.h"

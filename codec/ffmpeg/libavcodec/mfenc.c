@@ -27,7 +27,7 @@
 #include "imgutils.h"
 #include "mem.h"
 #include "opt.h"
-#include "time.h"
+#include "time_avutil.h"
 #include "codec_internal.h"
 #include "internal_avcodec.h"
 #include "w32dlfcn.h"

@@ -24,7 +24,7 @@
 #include "bprint.h"
 #include "mem.h"
 #include "opt.h"
-#include "time.h"
+#include "time_avutil.h"
 #include "parseutils.h"
 #include "internal_avformat.h"
 #include "avio_internal.h"

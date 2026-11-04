@@ -29,7 +29,7 @@
 #include "mem.h"
 #include "log_avutil.h"
 #include "pixfmt.h"
-#include "time.h"
+#include "time_avutil.h"
 #include "timestamp.h"
 #include "channel_layout.h"
 

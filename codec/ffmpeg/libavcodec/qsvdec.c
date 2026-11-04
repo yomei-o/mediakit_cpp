@@ -38,7 +38,7 @@
 #include "log_avutil.h"
 #include "opt.h"
 #include "pixfmt.h"
-#include "time.h"
+#include "time_avutil.h"
 #include "imgutils.h"
 #include "film_grain_params.h"
 #include "mastering_display_metadata.h"

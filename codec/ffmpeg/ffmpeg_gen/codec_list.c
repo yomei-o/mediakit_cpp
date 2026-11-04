@@ -175,6 +175,9 @@ static const FFCodec * const codec_list[] = {
 #ifdef _WIN32
     &ff_h264_mf_encoder,
 #endif
+#ifdef __APPLE__
+    &ff_h264_videotoolbox_encoder,
+#endif
 #ifdef MK_WITH_X264
     &ff_libx264_encoder,
 #endif

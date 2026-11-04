@@ -29,7 +29,7 @@
 #include "mem.h"
 #include "pixdesc.h"
 #include "stereo3d_avutil.h"
-#include "time.h"
+#include "time_avutil.h"
 #include "intreadwrite.h"
 #include "video_hint.h"
 #include "avcodec.h"

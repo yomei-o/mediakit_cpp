@@ -32,7 +32,7 @@
 #include "opt.h"
 #include "pixdesc.h"
 #include "pixfmt.h"
-#include "time.h"
+#include "time_avutil.h"
 #include "cpu.h"
 #include "avstring.h"
 

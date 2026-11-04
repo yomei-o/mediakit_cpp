@@ -1644,5 +1644,10 @@ if(WIN32)  # Media Foundation H.264 encoder, D3D11VA hardware decoding
   target_sources(mk_avcodec PRIVATE ${MK_FF_DIR}/libavcodec/dxva2.c ${MK_FF_DIR}/libavcodec/d3d11va.c ${MK_FF_DIR}/libavcodec/dxva2_h264.c)
   target_sources(mk_avutil PRIVATE ${MK_FF_DIR}/libavutil/hwcontext_d3d11va.c)
 endif()
+if(APPLE)  # VideoToolbox H.264 encoder and hardware decoding
+  target_sources(mk_avcodec PRIVATE ${MK_FF_DIR}/libavcodec/videotoolboxenc.c ${MK_FF_DIR}/libavcodec/videotoolbox.c)
+  target_sources(mk_avutil PRIVATE ${MK_FF_DIR}/libavutil/hwcontext_videotoolbox.c)
+  target_link_libraries(mk_avutil PUBLIC "-framework CoreFoundation" "-framework CoreMedia" "-framework CoreVideo" "-framework VideoToolbox")
+endif()
 target_link_libraries(mk_ffmpeg INTERFACE mk_avformat mk_avcodec mk_swscale mk_swresample mk_avutil)
 target_include_directories(mk_ffmpeg INTERFACE ${MK_FF_INCLUDES})

@@ -26,7 +26,7 @@
 #include "common_avutil.h"
 #include "log_avutil.h"
 #include "mem.h"
-#include "time.h"
+#include "time_avutil.h"
 #include "imgutils.h"
 #include "hwcontext_d3d12va_internal.h"
 #include "hwcontext_d3d12va.h"

@@ -48,7 +48,7 @@
 #include "mem.h"
 #include "pixfmt.h"
 #include "pixdesc.h"
-#include "time.h"
+#include "time_avutil.h"
 #include "imgutils.h"
 #include "avassert.h"
 

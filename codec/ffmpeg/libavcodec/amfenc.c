@@ -31,7 +31,7 @@
 #endif
 #include "mem.h"
 #include "pixdesc.h"
-#include "time.h"
+#include "time_avutil.h"
 
 #include "amfenc.h"
 #include "encode.h"

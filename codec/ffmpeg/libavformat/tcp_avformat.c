@@ -23,7 +23,7 @@
 #include "mem.h"
 #include "parseutils.h"
 #include "opt.h"
-#include "time.h"
+#include "time_avutil.h"
 
 #include "network.h"
 #include "os_support.h"

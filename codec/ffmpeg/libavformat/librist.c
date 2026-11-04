@@ -25,7 +25,7 @@
 #include "avstring.h"
 #include "opt.h"
 #include "parseutils.h"
-#include "time.h"
+#include "time_avutil.h"
 
 #include "avformat.h"
 #include "internal_avformat.h"
