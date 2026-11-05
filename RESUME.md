@@ -97,17 +97,26 @@ iOS（シミュレータ iOS 26.3、arm64。実機はまだ）
     届かない）。ケーブル・ポート・デーモン再起動・端末再起動・プライバシーのリセットは全部無効だった。
     その後に解消し、今は `pairingState: paired` / `tunnelState: connected` まで通る。
   - 次に iPhone 側の**デベロッパモード**が off だった。これも解消済み（`developerModeStatus: enabled`）。
-  - 現在の詰まりは **Xcode と iOS のバージョン差**。iPhone は iOS 26.6.2、この Mac の Xcode は 26.3 で
-    iOS 26.2 SDK、DDI は iOS 26.3.1 までしか無い。`devicectl` は
-    「The DDI's CoreDevice content is too old」「Failed to find a DDI that can be used」で止まり、
-    `xcodebuild -downloadPlatform iOS` を叩いても 26.3.1 までしか落ちてこない。
-    Xcode が端末を開発用と見なせないので、無料の Personal Team への**端末登録も走らない**
-    （`-allowProvisioningUpdates` 付きでも "Your team has no devices from which to generate a
-    provisioning profile"）。
-  - 抜けるには macOS を Tahoe 26.x 以降に上げて Xcode を 26.4 以降にするしかない
-    （Xcode 26.4 から macOS Tahoe 26.2 以降が要る。この Mac は macOS 15.7.4）。
-    `softwareupdate --list-full-installers` には Tahoe 26.7.1 も macOS 27 も出ている。
-    mediakit 側の問題ではないので、OS を上げる判断がつくまで実機確認は保留。
+  - 次は **Xcode と iOS のバージョン差**だった（Xcode 26.3 の DDI は iOS 26.3.1 まで、iPhone は 26.6.2）。
+    これは macOS を 27.2 に、Xcode を 27.2 に上げて解消した。古い Xcode が
+    `/Library/Developer/DeveloperDiskImages/iOS_DDI`（17C52）を置き去りにしていて、新しい Xcode を
+    入れてもそちらが選ばれ続けるので、`/Library/Developer/` の外に退かす必要があった。
+  - **2026-11-05 時点の詰まりはこれ：この Mac ではディスクイメージをマウントできない。**
+    構成プロファイル `/Library/Managed Preferences/com.apple.systemuiserver.plist` の `mount-controls` で
+    `disk-image` も `harddisk-external` も cd/dvd も**全部空の配列＝許可操作ゼロ**になっている。
+    実際、Xcode と無関係に自分で作った 10 MB の空イメージも `hdiutil attach` できない
+    （作成はできる）。`devicectl` / Xcode は
+    `CandidateDDIs/iOS_DDI.dmg` のマウントを `SUIS premount dissented`（DissenterPID 1892 =
+    SystemUIServer、`mount-controls` を執行しているプロセス）で蹴られ、DDI を展開できない。
+    `sudo` でも同じ（権限の問題ではなくポリシーによる拒否）。
+  - 鎖は 端末登録 ← 端末の開発準備 ← iPhone への DDI マウント ← Mac 側での DDI 展開 ← DMG のマウント。
+    一番下が塞がっているので、コマンドラインでも Xcode の GUI でも同じ所で止まる（`Internal` と
+    `Public` の両 variant を探して見つからない）。端末自体は `xcdevice list` で
+    `available: true` / `error: なし`、ビルド先の一覧にも出るのに、登録に進めない。
+  - 回避する手段は無い。情シスに `com.apple.systemuiserver` の `mount-controls` で disk-image の
+    マウント許可を依頼すること。許可が下りたら `xcrun devicectl manage ddis update` で
+    `CandidateDDIs` の 27B52 が入り、そこから先は `tools/build_ios_app.sh mk_studio` で進めるはず。
+    （退かした古い DDI は `/Library/Developer/iOS_DDI.old`。古くて使えないので消してよい。）
 
 OpenH264 2.6.0（SW エンコーダ、BSD 2-clause）
 - `codec/openh264/` に平坦化して同梱。エンコーダだけ（common + encoder/core + encoder/plus + processing）で
