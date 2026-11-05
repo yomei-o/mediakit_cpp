@@ -17,10 +17,10 @@ codec/ffmpeg/, codec/x264/, codec/openh264/  平坦化して同梱した第三�
 
 | | Windows | Linux | macOS | Android | iOS |
 |---|---|---|---|---|---|
-| io（カメラ・マイク・スピーカー） | ✓ Media Foundation + WASAPI | ✓ V4L2 + ALSA（WSL2 で USB カメラとそのマイク、WSLg のスピーカーを確認） | ✓ AVFoundation + AudioQueue | ✓ Camera2 NDK + AAudio | ✓ AVFoundation + AudioQueue（カメラは実機待ち） |
+| io（カメラ・マイク・スピーカー） | ✓ Media Foundation + WASAPI | ✓ V4L2 + ALSA（WSL2 で USB カメラとそのマイク、WSLg のスピーカーを確認） | ✓ AVFoundation + AudioQueue | ✓ Camera2 NDK + AAudio | ✓ AVFoundation + AudioQueue（iPhone 16 実機で確認） |
 | codec | ✓ | ✓（WSL で codec_test 通過） | ✓ VideoToolbox | ✓ MediaCodec | ✓ VideoToolbox |
 | ui | ✓ Win32 + GDI | ✓ X11（WSL2 の WSLg で確認） | ✓ AppKit | ✓ NativeActivity + ANativeWindow | ✓ UIKit |
-| pipeline | ✓ | ✓（疑似デバイスで録画→再生通過） | ✓ | ✓ | ✓（シミュレータ） |
+| pipeline | ✓ | ✓（疑似デバイスで録画→再生通過） | ✓ | ✓ | ✓（iPhone 16 実機でプレビュー→録画→再生） |
 
 ## 使い方
 
@@ -155,13 +155,21 @@ Android のウィンドウには NDK に文字を描く手段が無いので、�
 - カメラの結果は binder で返ってくるので、Java を持たないネイティブだけのプロセスでは
   `io` が `ABinderProcess_startThreadPool()` を自分で呼んでいる（API 29 以上）。
 
-iOS（実機 SDK とシミュレータ SDK のどちらもビルドが通る。署名は Xcode の Apple ID 任せ）：
+iOS（実機 SDK とシミュレータ SDK のどちらもビルドが通る。署名は Xcode の Apple ID 任せで、無料の Personal Team で足りる）：
 
 ```sh
 cmake -S . -B build-ios -G Xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=iphoneos \
       -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0
 tools/build_ios_app.sh mk_studio          # 署名して接続中の iPhone に入れる
+xcrun devicectl device process launch --device <UDID> org.mediakit.mkstudio
 ```
+
+初回だけ iPhone 側で「設定 → 一般 → VPN とデバイス管理 → デベロッパ APP」から
+そのデベロッパを信頼する操作が要る。これをしないと起動が
+`its profile has not been explicitly trusted by the user` で拒否される。
+バンドル ID からアンダースコアが抜けている（`mk_studio` → `org.mediakit.mkstudio`）のは、
+App ID に使える文字が英数字と `-` `.` だけで、Info.plist と署名した App ID が食い違うと
+installd が `invalid entitlements` で弾くため。
 
 シミュレータで動かすなら：
 
@@ -170,7 +178,7 @@ cmake -S . -B build-ios-sim -G Xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT
       -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO
 cmake --build build-ios-sim --config Release
 xcrun simctl install booted build-ios-sim/Release-iphonesimulator/mk_studio.app
-xcrun simctl launch booted org.mediakit.mk_studio --test     # シミュレータにカメラは無い
+xcrun simctl launch booted org.mediakit.mkstudio --test     # シミュレータにカメラは無い
 # コンソールのテストはバンドルの中身をそのまま動かせる
 xcrun simctl spawn booted build-ios-sim/Release-iphonesimulator/codec_test.app/codec_test --hwdec
 ```

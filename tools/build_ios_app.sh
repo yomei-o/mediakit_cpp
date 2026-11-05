@@ -19,16 +19,20 @@ TEAM=${DEVELOPMENT_TEAM:-$(plutil -p ~/Library/Preferences/com.apple.dt.Xcode.pl
       | sed -n 's/.*"teamID" => "\([A-Z0-9]*\)".*/\1/p' | head -1)}
 [ -n "$TEAM" ] || { echo "no development team: add an Apple ID in Xcode > Settings > Accounts"; exit 1; }
 
+# CMAKE_XCODE_GENERATE_SCHEME is needed because xcodebuild ignores -destination without a
+# scheme, and without a destination it cannot register the device with the team
 cmake -S . -B "$DIR" -G Xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=iphoneos \
-      -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 >/dev/null
+      -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
+      -DCMAKE_XCODE_GENERATE_SCHEME=ON >/dev/null
 
-# a free team's certificate lasts seven days; -allowProvisioningUpdates renews it and registers
-# the connected device
+# a free team's profile lasts seven days; -allowProvisioningUpdates renews it, and
+# -allowProvisioningDeviceRegistration lets xcodebuild add a device the team has never seen
 BUNDLE_ID=org.mediakit.$(echo "$TARGET" | tr -d '_')
-xcodebuild -project "$DIR"/mediakit.xcodeproj -target "$TARGET" -configuration Release \
-    -destination "id=$UDID" -allowProvisioningUpdates \
+xcodebuild -project "$DIR"/mediakit.xcodeproj -scheme "$TARGET" -configuration Release \
+    -destination "platform=iOS,id=$UDID" \
+    -allowProvisioningUpdates -allowProvisioningDeviceRegistration \
     CODE_SIGN_STYLE=Automatic DEVELOPMENT_TEAM="$TEAM" \
-    PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" -quiet
+    PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" -quiet build
 
 APP=$DIR/Release-iphoneos/$TARGET.app
 xcrun devicectl device install app --device "$UDID" "$APP"

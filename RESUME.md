@@ -77,7 +77,7 @@ Android（A301KC、arm64、Android 13、MediaTek。NDK r27 / API 26 でビルド
   プレビュー → 録画（MediaCodec、181 フレーム・落ち 0）→ 保存 → 再生（0:40）→ カメラに戻る、まで
   画面を見て確認した。BACK で main() が返り、カメラも解放される。
 
-iOS（シミュレータ iOS 26.3、arm64。実機はまだ）
+iOS（iPhone 16 実機 + シミュレータ、arm64）
 - io は macOS と同じ `io/apple/mk_io_apple.mm`（`AVAudioSession` の設定だけ iOS のときに入る）、
   ui は `ui/ios/mk_ui_ios.mm`。実機 SDK とシミュレータ SDK のどちらでもビルドが通る。
 - `codec_test` も `codec_test --hwdec` も通過：VideoToolbox のエンコード（PSNR 45.9 dB）とデコード、
@@ -89,34 +89,39 @@ iOS（シミュレータ iOS 26.3、arm64。実機はまだ）
 - ただし **シミュレータの VideoToolbox はソフトウェアで、720p30 の実時間エンコードに追いつかない**。
   疑似カメラから 30 fps を流すと大半のフレームが落ちて `player_test` が落ちる。640x360 の `codec_test` は
   実時間ではないので全部通る。ここは実機で測り直すこと。
-- 実機に入れるには署名が要る。Xcode に Apple ID を足せば無料の Personal Team で足りる
-  （`tools/build_ios_app.sh` が Team ID を Xcode の plist から拾って `-allowProvisioningUpdates` で回す）。
-  2026-11-04 の時点で実機にはまだ入れられていない。経緯：
-  - 最初は **USB で端末を掴めなかった**（`ioreg -p IOUSB` に `iPhone@...` が matched / active で出るのに
-    コンフィギュレーションが選択されずインタフェースが生えない＝`usbmuxd` も lockdown も CoreDevice も
-    届かない）。ケーブル・ポート・デーモン再起動・端末再起動・プライバシーのリセットは全部無効だった。
-    その後に解消し、今は `pairingState: paired` / `tunnelState: connected` まで通る。
-  - 次に iPhone 側の**デベロッパモード**が off だった。これも解消済み（`developerModeStatus: enabled`）。
-  - 次は **Xcode と iOS のバージョン差**だった（Xcode 26.3 の DDI は iOS 26.3.1 まで、iPhone は 26.6.2）。
-    これは macOS を 27.2 に、Xcode を 27.2 に上げて解消した。古い Xcode が
+- **2026-11-05、実機で動いた。** `tools/build_ios_app.sh mk_studio` で iPhone 16（yomei12、iOS 26.6.2）に
+  入れて、プレビュー・録画・再生・一時停止まで画面で確認した。署名は無料の Personal Team
+  （`isFreeProvisioningTeam`、プロファイルの有効期間は 7 日なので切れたら流し直す）。
+- 初回だけ iPhone 側で「設定 → 一般 → VPN とデバイス管理 → デベロッパ APP」からデベロッパを
+  信頼する操作が要る。これをしないと起動が
+  `its profile has not been explicitly trusted by the user` で拒否される（インストールは通る）。
+- ここに至るまでに潰したもの（同じ所で止まったら思い出すこと）：
+  - **USB で端末を掴めなかった**（`ioreg -p IOUSB` に出るのにインタフェースが生えない）。のちに解消し、
+    今は `pairingState: paired` / `tunnelState: connected`。
+  - iPhone 側の**デベロッパモード**が off。解消。
+  - **Xcode と iOS のバージョン差**（Xcode 26.3 の DDI は iOS 26.3.1 まで、iPhone は 26.6.2）。
+    macOS 27.2 / Xcode 27.2 に上げて解消。ただし古い Xcode が
     `/Library/Developer/DeveloperDiskImages/iOS_DDI`（17C52）を置き去りにしていて、新しい Xcode を
-    入れてもそちらが選ばれ続けるので、`/Library/Developer/` の外に退かす必要があった。
-  - **2026-11-05 時点の詰まりはこれ：この Mac ではディスクイメージをマウントできない。**
-    構成プロファイル `/Library/Managed Preferences/com.apple.systemuiserver.plist` の `mount-controls` で
-    `disk-image` も `harddisk-external` も cd/dvd も**全部空の配列＝許可操作ゼロ**になっている。
-    実際、Xcode と無関係に自分で作った 10 MB の空イメージも `hdiutil attach` できない
-    （作成はできる）。`devicectl` / Xcode は
-    `CandidateDDIs/iOS_DDI.dmg` のマウントを `SUIS premount dissented`（DissenterPID 1892 =
-    SystemUIServer、`mount-controls` を執行しているプロセス）で蹴られ、DDI を展開できない。
-    `sudo` でも同じ（権限の問題ではなくポリシーによる拒否）。
-  - 鎖は 端末登録 ← 端末の開発準備 ← iPhone への DDI マウント ← Mac 側での DDI 展開 ← DMG のマウント。
-    一番下が塞がっているので、コマンドラインでも Xcode の GUI でも同じ所で止まる（`Internal` と
-    `Public` の両 variant を探して見つからない）。端末自体は `xcdevice list` で
-    `available: true` / `error: なし`、ビルド先の一覧にも出るのに、登録に進めない。
-  - 回避する手段は無い。情シスに `com.apple.systemuiserver` の `mount-controls` で disk-image の
-    マウント許可を依頼すること。許可が下りたら `xcrun devicectl manage ddis update` で
-    `CandidateDDIs` の 27B52 が入り、そこから先は `tools/build_ios_app.sh mk_studio` で進めるはず。
-    （退かした古い DDI は `/Library/Developer/iOS_DDI.old`。古くて使えないので消してよい。）
+    入れてもそちらが選ばれ続けるので、`/Library/Developer/` の外に退かす必要があった
+    （退かした残骸は `/Library/Developer/iOS_DDI.old`。古くて使えないので消してよい）。
+  - **この Mac ではディスクイメージをマウントできなかった**。構成プロファイル
+    `/Library/Managed Preferences/com.apple.systemuiserver.plist` の `mount-controls` が
+    `disk-image` も含め全部空の配列＝許可操作ゼロで、`hdiutil attach` が
+    `SUIS premount dissented`（DissenterPID = SystemUIServer）で蹴られる。sudo でも同じ
+    （権限ではなくポリシーによる拒否）。DDI は DMG なので、端末登録 ← 端末の開発準備 ←
+    iPhone への DDI マウント ← Mac 側での DDI 展開 ← DMG のマウント、の一番下が塞がっていた。
+    情シスに解除してもらって解決。解除後は `xcrun devicectl manage ddis update` で
+    `isUsable: true` になる。
+  - **`xcodebuild` が端末を Team に登録してくれなかった**（`Your team has no devices from which to
+    generate a provisioning profile` がずっと出ていた）。原因は二つ。`-target` 指定だと
+    xcodebuild は `-destination` を捨てる（`Ignoring provided run destination because no scheme was
+    passed`）ので、どの端末を登録すべきか分からない。CMake に `CMAKE_XCODE_GENERATE_SCHEME=ON` で
+    スキームを作らせて `-scheme` で渡すようにした。もう一つ、新しい端末の登録には
+    `-allowProvisioningUpdates` だけでは足りず **`-allowProvisioningDeviceRegistration`** が要る。
+  - **バンドル ID の不一致**で installd に `0xe8008016 invalid entitlements` で弾かれた。
+    Info.plist が `org.mediakit.mk_studio`、署名した App ID が `org.mediakit.mkstudio` だった。
+    App ID に使える文字は英数字と `-` `.` だけでアンダースコアが使えないので、CMakeLists 側で
+    `string(REPLACE "_" "" bundle_id ${prog})` して両方を `mkstudio` に揃えた。
 
 OpenH264 2.6.0（SW エンコーダ、BSD 2-clause）
 - `codec/openh264/` に平坦化して同梱。エンコーダだけ（common + encoder/core + encoder/plus + processing）で
@@ -216,5 +221,7 @@ FFmpeg の設定ヘッダ（`ffmpeg_gen/config_ffmpeg.h`）の作り直し
 ## 次にやること
 
 1. Linux：V4L2 MJPEG・ALSA・X11 窓は WSL2 で確認済み。残りは X11 の日本語（Xft）。Linux の HW エンコード（VA-API）
-2. iOS：実機で動かす（シミュレータでは一通り通った。実機なら 720p30 の実時間エンコードと
-   カメラが測れる。Xcode が iPhone を認識するところが先）
+2. iOS 実機：動くようになったので、あとは数字を取る。シミュレータの VideoToolbox は
+   ソフトウェアで 720p30 の実時間エンコードに追いつかなかったので、実機で
+   プレビューの fps・落ちフレーム・エンコーダ名を `mk_studio` のステータス行で測り直す。
+   `player_test` / `codec_test` も実機のバンドルで回す

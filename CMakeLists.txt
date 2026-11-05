@@ -169,12 +169,16 @@ if(MK_BUILD_EXAMPLES AND TARGET mk_io AND TARGET mk_ui)
     endif()
     if(IOS)  # .app bundles, so they can be installed on a device or a simulator
       foreach(prog mk_play mk_studio)
+        # an App ID takes only letters, digits, '-' and '.', so mk_studio becomes mkstudio.
+        # Info.plist and the signed App ID must agree or installd rejects the app
+        # with "The executable was signed with invalid entitlements".
+        string(REPLACE "_" "" bundle_id ${prog})
         set_target_properties(${prog} PROPERTIES
             MACOSX_BUNDLE TRUE
             MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/tools/ios_info.plist.in
             MACOSX_BUNDLE_BUNDLE_NAME ${prog}
-            MACOSX_BUNDLE_GUI_IDENTIFIER org.mediakit.${prog}
-            XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER org.mediakit.${prog})
+            MACOSX_BUNDLE_GUI_IDENTIFIER org.mediakit.${bundle_id}
+            XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER org.mediakit.${bundle_id})
       endforeach()
     endif()
   endif()
