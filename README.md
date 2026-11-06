@@ -17,7 +17,7 @@ codec/ffmpeg/, codec/x264/, codec/openh264/  平坦化して同梱した第三�
 
 | | Windows | Linux | macOS | Android | iOS | ブラウザ（wasm） |
 |---|---|---|---|---|---|---|
-| io（カメラ・マイク・スピーカー） | ✓ Media Foundation + WASAPI | ✓ V4L2 + ALSA（WSL2 で USB カメラとそのマイク、WSLg のスピーカーを確認） | ✓ AVFoundation + AudioQueue | ✓ Camera2 NDK + AAudio | ✓ AVFoundation + AudioQueue（iPhone 16 実機で確認） | ✓ カメラだけ（getUserMedia、Edge + USB カメラで確認）。マイク・スピーカーは未対応 |
+| io（カメラ・マイク・スピーカー） | ✓ Media Foundation + WASAPI | ✓ V4L2 + ALSA（WSL2 で USB カメラとそのマイク、WSLg のスピーカーを確認） | ✓ AVFoundation + AudioQueue | ✓ Camera2 NDK + AAudio | ✓ AVFoundation + AudioQueue（iPhone 16 実機で確認） | ✓ getUserMedia + Web Audio（Edge + USB カメラ・そのマイク・PC のスピーカーで確認） |
 | codec | ✓ | ✓（WSL で codec_test 通過） | ✓ VideoToolbox | ✓ MediaCodec | ✓ VideoToolbox | ✓（node で codec_test 通過、エンコードは `-DMK_WITH_OPENH264=ON`） |
 | ui | ✓ Win32 + GDI | ✓ X11（WSL2 の WSLg で確認） | ✓ AppKit | ✓ NativeActivity + ANativeWindow | ✓ UIKit | ✓ canvas + HTML のボタン |
 | pipeline | ✓ | ✓（疑似デバイスで録画→再生通過） | ✓ | ✓ | ✓（iPhone 16 実機でプレビュー→録画→再生） | ―（スレッドが要るので未対応） |
@@ -193,23 +193,28 @@ iOS のときだけ `main` を `mk_ios_main` に付け替えるので、サン�
 
 ```sh
 emcmake cmake -S . -B build-wasm -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build-wasm --target mk_vision
+cmake --build build-wasm --target mk_vision audio_loopback_test
 cd build-wasm && python -m http.server 8000      # http://localhost:8000/mk_vision.html を開く
 # 引数は URL で渡す：mk_vision.html?args=--test%20--fps%204
+# audio_loopback_test.html：スピーカー→マイクのテスト（ページをクリックすると始まる）
 cmake --build build-wasm --target mk_mux codec_test   # codec は node で動く（node build-wasm/mk_mux.js ...）
 ```
 
-カメラは `https://` か `http://localhost` のページでないと使えない（ブラウザの決まり）。
+カメラ・マイクは `https://` か `http://localhost` のページでないと使えない（ブラウザの決まり）。
 wasm 版はスレッドを使わない（SharedArrayBuffer や COOP/COEP のヘッダが要らない）代わりに、次の点が他の OS と違う。
 
-- `Camera::open()` はブラウザの許可ダイアログを待つ。そのためプログラムは `-sASYNCIFY` でリンクする（CMake が付ける）。
+- `Camera::open()` / `Microphone::open()` はブラウザの許可ダイアログを待つ。そのためプログラムは `-sASYNCIFY` でリンクする（CMake が付ける）。
 - フレームは JS のタイマーが `CameraConfig::fps` どおりに `<video>` から取り出し、メインスレッドで
   コールバックに渡す。届くのはプログラムが待っている間（`Window::run()` の中など）だけなので、
   コールバックの処理が重いと画面も止まる（2 fps で数十 ms 程度なら問題ない）。
 - フレームは BGRA で届くので、FrameConverter（codec）をリンクしなくても使える。
+- マイク・スピーカーは Web Audio の AudioWorklet で 10 ms ごとに受け渡す。マイクの音もカメラと同じく
+  プログラムが待っている間にメインスレッドで届く。ブラウザはページがクリック（かキー入力）されるまで
+  音を止めておくので、それまでマイクは何も届けず、スピーカーも鳴らない（最初のクリックで動き出す）。
+  スピーカーの出力先を選ぶ（`device_id`）のは `setSinkId` のあるブラウザ（Chrome / Edge）だけ。
 - `Window` は `id="mk-root"` の要素（`tools/wasm_shell.html`）に canvas とボタンを置く。
   `choose_open_file()` はブラウザのファイル選択で選んだファイルを MEMFS の `/tmp` にコピーして返す。
-- Recorder / Player（pipeline）とマイク・スピーカーはまだ無い。H.264 のエンコーダは OS のものが無いので、
+- Recorder / Player（pipeline）はまだ無い。H.264 のエンコーダは OS のものが無いので、
   エンコードするなら `-DMK_WITH_OPENH264=ON`。
 
 ## ライセンス

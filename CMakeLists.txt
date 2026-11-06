@@ -162,6 +162,12 @@ if(MK_BUILD_EXAMPLES AND TARGET mk_io AND NOT EMSCRIPTEN)  # console programs th
   mk_program(audio_loopback_test tests/audio_loopback_test.cpp)
   target_link_libraries(audio_loopback_test mk_io)
 endif()
+if(MK_BUILD_EXAMPLES AND EMSCRIPTEN)
+  # audio_loopback_test.html: the same speaker -> microphone test in the browser (serve over http://localhost)
+  mk_program(audio_loopback_test tests/audio_loopback_test.cpp)
+  target_link_libraries(audio_loopback_test mk_io)
+  set_target_properties(audio_loopback_test PROPERTIES SUFFIX ".html")
+endif()
 if(MK_BUILD_EXAMPLES AND TARGET mk_io AND TARGET mk_ui)
   if(EMSCRIPTEN)
     # mk_vision.html + .js + .wasm; serve the build directory over http://localhost (camera access needs

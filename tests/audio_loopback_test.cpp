@@ -17,10 +17,34 @@
 #define NOMINMAX
 #include <windows.h>
 #endif
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+
+// Browsers hold audio back until the user has clicked on the page: wait for that click first, or the
+// tone would never play. (A click-free page, e.g. with --autoplay-policy=no-user-gesture-required, goes on.)
+EM_ASYNC_JS(void, wait_for_audio_permission, (), {
+    const probe = new AudioContext();
+    await new Promise(r => setTimeout(r, 100));
+    const ok = probe.state == "running";
+    probe.close();
+    if (ok) return;
+    (Module.print || console.log)("ページをクリックするとテストが始まります (click the page to start)");
+    await new Promise(r => document.addEventListener("pointerdown", r, { once: true, capture: true }));
+});
+#endif
 
 namespace {
 
 const double kPi = 3.14159265358979323846;
+
+// The browser delivers audio only while the program sleeps through emscripten_sleep.
+void wait_ms(int ms) {
+#ifdef __EMSCRIPTEN__
+    emscripten_sleep(ms);
+#else
+    std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+#endif
+}
 
 // Power of one frequency in x[0..n) (Goertzel), normalised by n^2 so windows of the same size compare.
 double tone_power(const int16_t* x, int n, double f, int rate) {
@@ -49,6 +73,9 @@ int main(int argc, char** argv) {
     const int rate = 48000;
     const double tone_secs = 3.0;
 
+#ifdef __EMSCRIPTEN__
+    wait_for_audio_permission();
+#endif
     std::mutex mu;
     std::vector<int16_t> rec;    // mono
     std::vector<int64_t> rec_t;  // capture time of every 10 ms block
@@ -66,7 +93,7 @@ int main(int argc, char** argv) {
         }
     });
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(1500));  // silence: the baseline
+    wait_ms(1500);  // silence: the baseline
     const int64_t tone_written = mk::now_us();
     int64_t pts = 0;
     const int block = rate / 50;  // 20 ms
@@ -83,7 +110,11 @@ int main(int argc, char** argv) {
         spk.write(f);
         pts += f.duration_us();
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds((int)(tone_secs * 1000) + 1500));
+    // halfway through the tone, the speaker clock should say about half of it has been heard
+    wait_ms((int)(tone_secs * 500));
+    const int64_t played_mid = spk.played_pts_us();
+    const double since_written = (mk::now_us() - tone_written) / 1e6;
+    wait_ms((int)(tone_secs * 500) + 1500);
     mic.stop();
     spk.stop();
 
@@ -125,6 +156,7 @@ int main(int argc, char** argv) {
     std::printf("%.0f Hz: silence %.1f -> tone %.1f (+%.1f dB), vs neighbouring frequencies +%.1f dB\n", freq, base, tone, rise_db,
                 sel_db);
     std::printf("heard %.2f s after writing, for %.2f s (played %.1f s)\n", (heard_from - tone_written) / 1e6, heard_secs, tone_secs);
+    std::printf("speaker clock: %.2f s of the tone played, %.2f s after writing it\n", played_mid / 1e6, since_written);
     if (rise_db < 20) std::printf("FAIL: the tone is not louder than the silence (speaker muted or too far from the microphone?)\n"), ++failures;
     if (sel_db < 10) std::printf("FAIL: the recording is not the tone\n"), ++failures;
     if (std::fabs(heard_secs - tone_secs) > 0.5) std::printf("FAIL: heard for %.2f s instead of %.1f s\n", heard_secs, tone_secs), ++failures;

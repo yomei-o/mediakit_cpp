@@ -124,7 +124,7 @@ iOS（iPhone 16 実機 + シミュレータ、arm64）
     `string(REPLACE "_" "" bundle_id ${prog})` して両方を `mkstudio` に揃えた。
 
 ブラウザ（wasm、Emscripten 6.0.13、2026-11-06）
-- io は `io/wasm/mk_io_wasm.cpp`（カメラだけ：getUserMedia）、ui は `ui/wasm/mk_ui_wasm.cpp`（canvas + HTML のボタン）。
+- io は `io/wasm/mk_io_wasm.cpp`（カメラ・マイク：getUserMedia、スピーカー：Web Audio）、ui は `ui/wasm/mk_ui_wasm.cpp`（canvas + HTML のボタン）。
   スレッドは使わない。`Camera::open()` は許可ダイアログの Promise を EM_ASYNC_JS で待ち、`Window::run()` は
   `emscripten_sleep` で回す（どちらも ASYNCIFY）。こうするとサンプルのソースは他の OS と同じ形のままで済む。
 - フレームは JS の setTimeout が fps どおりに `<video>` → canvas → getImageData で取り、エクスポートした
@@ -142,6 +142,18 @@ iOS（iPhone 16 実機 + シミュレータ、arm64）
   C505 は WSL 用に usbipd に渡していたうえ、映像のインターフェースに Zadig 製の libusbK ドライバ（oem49.inf）が
   入っていてブラウザから見えなかった。`usbipd unbind` と `pnputil /delete-driver oem49.inf /uninstall /force` で
   Windows の usbvideo に戻した（WSL で使うときは `usbipd bind --force` → `attach` し直す）。
+- マイク・スピーカー（2026-11-07）：どちらも AudioWorklet（Blob URL で読み込む）。マイクは 10 ms の s16 を
+  postMessage でメインスレッドへ送り `mk_wasm_mic_audio` を呼ぶ。時刻はコンテキスト時刻を
+  getOutputTimestamp で performance.now()（＝ wasm の now_us）に直す。AudioContext は指定のレートで作り、
+  作れない（Firefox のマイク）ときは既定のレートで作って C++ で線形リサンプル。スピーカーは worklet が
+  実際に鳴らしたフレーム数を返し、C++ は書いたブロックの先頭（フレーム番号、pts）からメディア時刻に戻す
+  （出力レイテンシを引く）。ブラウザの自動再生の決まりで、クリックかキー入力まで止めておく。
+- `audio_loopback_test` をブラウザ用にもビルド（`audio_loopback_test.html`、待ちは emscripten_sleep）。
+  Edge（ヘッドレス、`--autoplay-policy=no-user-gesture-required`、puppeteer の `--mute-audio` を外す）で
+  C505 のマイク＋PC のスピーカー：+45.9 dB、3.00 s、書いてから 0.13 s で聞こえた、マイク 99.2%。
+  スピーカーの時計は 1.52 s 後に 1.47 s 再生済み。Windows ネイティブも同じテストで ALL OK（+45.2 dB）。
+  使い捨てのテストで "test" マイク（16 kHz モノラルで 2 秒 32000 サンプル）、44.1→48 kHz のリサンプル、
+  `clear()` 後の played -1 / queued 0 も確認。
 
 OpenH264 2.6.0（SW エンコーダ、BSD 2-clause）
 - `codec/openh264/` に平坦化して同梱。エンコーダだけ（common + encoder/core + encoder/plus + processing）で
@@ -247,7 +259,7 @@ FFmpeg の設定ヘッダ（`ffmpeg_gen/config_ffmpeg.h`）の作り直し
 ## 次にやること
 
 1. Linux：V4L2 MJPEG・ALSA・X11 窓は WSL2 で確認済み。残りは X11 の日本語（Xft）。Linux の HW エンコード（VA-API）
-2. wasm：スマホのブラウザで確認（https が要る）、マイク・スピーカー（WebAudio）、重い解析は Web Worker に逃がす
+2. wasm：スマホのブラウザで確認（https が要る）、重い解析は Web Worker に逃がす
 3. iOS 実機：動くようになったので、あとは数字を取る。シミュレータの VideoToolbox は
    ソフトウェアで 720p30 の実時間エンコードに追いつかなかったので、実機で
    プレビューの fps・落ちフレーム・エンコーダ名を `mk_studio` のステータス行で測り直す。

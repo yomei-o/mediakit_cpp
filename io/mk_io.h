@@ -4,6 +4,7 @@
 //   Linux    V4L2 + ALSA
 //   macOS/iOS AVFoundation + AudioQueue
 //   Android  NDK Camera2 + AAudio              (todo)
+//   Browser  getUserMedia + Web Audio (wasm; callbacks on the main thread while the program waits)
 // Callbacks run on a capture thread; copy what you need and return quickly.
 #pragma once
 #include <functional>
