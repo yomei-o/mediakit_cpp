@@ -123,6 +123,23 @@ iOS（iPhone 16 実機 + シミュレータ、arm64）
     App ID に使える文字は英数字と `-` `.` だけでアンダースコアが使えないので、CMakeLists 側で
     `string(REPLACE "_" "" bundle_id ${prog})` して両方を `mkstudio` に揃えた。
 
+ブラウザ（wasm、Emscripten 6.0.13、2026-11-06）
+- io は `io/wasm/mk_io_wasm.cpp`（カメラだけ：getUserMedia）、ui は `ui/wasm/mk_ui_wasm.cpp`（canvas + HTML のボタン）。
+  スレッドは使わない。`Camera::open()` は許可ダイアログの Promise を EM_ASYNC_JS で待ち、`Window::run()` は
+  `emscripten_sleep` で回す（どちらも ASYNCIFY）。こうするとサンプルのソースは他の OS と同じ形のままで済む。
+- フレームは JS の setTimeout が fps どおりに `<video>` → canvas → getImageData で取り、エクスポートした
+  `mk_wasm_camera_frame` を呼ぶ（BGRA に並べ替えてコールバックへ）。遅れたら溜めずに次の刻みへ飛ぶ。
+- ボタンのクリックは JS のキューに積み、`run()` の中で C++ のコールバックを呼ぶ（JS から直接呼ぶと、
+  クリックの処理の中で ASYNCIFY の待ち（カメラを開くなど）ができない）。
+- `mk_vision`（新しいサンプル、全 OS 共通）を Edge のヘッドレス + 疑似カメラで自動テスト（puppeteer-core）：
+  `--test` 2.0 fps、疑似カメラ 2.0 fps、`--fps 4` で 4.0 fps、停止→開始、プレート風の Y4M を
+  `--use-file-for-fake-video-capture` で流すと候補の枠が出る。解析は 1280x720 で 0.5 ms 程度。
+  `mk_vision.wasm` は 270 KB（codec をリンクしないので小さい）。
+- codec も wasm で通る：`mk_mux`（chicago 415 秒を 3.7 秒、30356 パケット）、OpenH264 入りの `codec_test`
+  （PSNR 48.0 dB、AAC 440 Hz 成分比 1.000、RGB 変換の平均差 0.26）を node で。wasm は 13 MB。
+- 同じ変更で Windows（MSVC、`mk_vision --test` を画面で確認）と Linux（WSL2）もビルド。
+- 実カメラでの確認はまだ（この PC の C505 は usbipd に渡してあり、Windows のブラウザからは見えない）。
+
 OpenH264 2.6.0（SW エンコーダ、BSD 2-clause）
 - `codec/openh264/` に平坦化して同梱。エンコーダだけ（common + encoder/core + encoder/plus + processing）で
   166 ファイル、decoder は入れていない（FFmpeg 側のデコーダで足りるので）。アセンブラ（`.S` / `.asm`）は
@@ -167,6 +184,12 @@ FFmpeg の設定ヘッダ（`ffmpeg_gen/config_ffmpeg.h`）の作り直し
 
 ## 落とし穴
 
+- EM_JS / EM_ASYNC_JS の本体は C の文字列になる：JS の `''` は空の文字定数として警告され、正規表現の `\\` は
+  `\` に減って壊れる。空文字列は `""`、バックスラッシュは使わない。
+- 生成済みの `ffmpeg_gen/demuxer_list.c` は配列の型が古い `AVInputFormat` だった（中身は `FFInputFormat`）。
+  MSVC / gcc は警告だけだが、Emscripten の clang はエラーにする。`FFInputFormat` に直した。
+- Emscripten は `__linux__` を定義しない。`config_ffmpeg.h` の POSIX 系（unistd・mmap・posix_memalign・usleep・
+  pthreads）は `__EMSCRIPTEN__` も足した。pthread はスタブなので、FFmpeg はスレッド数 1（CPU 数が 1 と出る）で動く。
 - `VideoFrame` は data[] が自分の buffer を指す。コピー・ムーブでポインタを付け替える。
 - FFmpeg の H.264 デコーダはフレーム並列だとスレッド数ぶん溜めて一気に出す。スライス並列 + LOW_DELAY にしてある。
 - Player：表示スレッドは先頭フレームの時刻まで「眠る」（ロックを持って空回りするとスピーカーのスレッドが詰まり、
@@ -221,7 +244,8 @@ FFmpeg の設定ヘッダ（`ffmpeg_gen/config_ffmpeg.h`）の作り直し
 ## 次にやること
 
 1. Linux：V4L2 MJPEG・ALSA・X11 窓は WSL2 で確認済み。残りは X11 の日本語（Xft）。Linux の HW エンコード（VA-API）
-2. iOS 実機：動くようになったので、あとは数字を取る。シミュレータの VideoToolbox は
+2. wasm：実カメラで確認（スマホのブラウザも）、マイク・スピーカー（WebAudio）、重い解析は Web Worker に逃がす
+3. iOS 実機：動くようになったので、あとは数字を取る。シミュレータの VideoToolbox は
    ソフトウェアで 720p30 の実時間エンコードに追いつかなかったので、実機で
    プレビューの fps・落ちフレーム・エンコーダ名を `mk_studio` のステータス行で測り直す。
    `player_test` / `codec_test` も実機のバンドルで回す

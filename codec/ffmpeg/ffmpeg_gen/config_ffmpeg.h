@@ -9,6 +9,8 @@
 #define FFMPEG_CONFIGURATION "mediakit: flattened FFmpeg 7.1.1, no asm, Android NDK"
 #elif defined(_WIN32)
 #define FFMPEG_CONFIGURATION "mediakit: flattened FFmpeg 7.1.1, no asm, MSVC"
+#elif defined(__EMSCRIPTEN__)
+#define FFMPEG_CONFIGURATION "mediakit: flattened FFmpeg 7.1.1, no asm, no threads, Emscripten"
 #else
 #define FFMPEG_CONFIGURATION "mediakit: flattened FFmpeg 7.1.1, no asm"
 #endif
@@ -34,6 +36,8 @@
 #define OS_NAME win32
 #elif defined(__linux__)
 #define OS_NAME linux
+#elif defined(__EMSCRIPTEN__)
+#define OS_NAME emscripten
 #else
 #define OS_NAME unknown
 #endif
@@ -351,7 +355,7 @@
 #define HAVE_TERMIOS_H 0
 #define HAVE_UDPLITE_H 0
 
-#if defined(__linux__) || defined(__ANDROID__) || defined(__APPLE__)
+#if defined(__linux__) || defined(__ANDROID__) || defined(__APPLE__) || defined(__EMSCRIPTEN__)
 #define HAVE_UNISTD_H 1
 #else
 #define HAVE_UNISTD_H 0
@@ -479,7 +483,7 @@
 #define HAVE_MEMALIGN 0
 #define HAVE_MKSTEMP 0
 
-#if defined(__linux__) || defined(__ANDROID__) || defined(__APPLE__)
+#if defined(__linux__) || defined(__ANDROID__) || defined(__APPLE__) || defined(__EMSCRIPTEN__)
 #define HAVE_MMAP 1
 #else
 #define HAVE_MMAP 0
@@ -489,7 +493,7 @@
 #define HAVE_NANOSLEEP 0
 #define HAVE_PEEKNAMEDPIPE 1
 
-#if defined(__linux) || defined(__ANDROID__) || defined(__APPLE__)
+#if defined(__linux) || defined(__ANDROID__) || defined(__APPLE__) || defined(__EMSCRIPTEN__)
 #define HAVE_POSIX_MEMALIGN 1
 #else
 #define HAVE_POSIX_MEMALIGN 0
@@ -523,7 +527,7 @@
 #define HAVE_SYSCTL 0
 #define HAVE_SYSCTLBYNAME 0
 
-#if defined(__linux__) || defined(__ANDROID__) || defined(__APPLE__)
+#if defined(__linux__) || defined(__ANDROID__) || defined(__APPLE__) || defined(__EMSCRIPTEN__)
 #define HAVE_USLEEP 1
 #else
 #define HAVE_USLEEP 0
@@ -544,7 +548,7 @@
 #define HAVE_VAAPI_WIN32 0
 #define HAVE_VDPAU_X11 0
 //yomei
-#if defined(__linux__) || defined(__ANDROID__) || defined(__APPLE__)
+#if defined(__linux__) || defined(__ANDROID__) || defined(__APPLE__) || defined(__EMSCRIPTEN__)
 #define HAVE_PTHREADS 1
 #else
 #define HAVE_PTHREADS 0

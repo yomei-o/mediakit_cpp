@@ -63,6 +63,10 @@ elseif(APPLE)  # macOS and iOS share this one
   if(NOT IOS)
     target_link_libraries(mk_io PUBLIC "-framework CoreAudio")  # the device list; iOS has none
   endif()
+elseif(EMSCRIPTEN)
+  # browser: getUserMedia. open() waits for the browser's promise, so programs link with ASYNCIFY.
+  add_library(mk_io STATIC io/wasm/mk_io_wasm.cpp)
+  target_link_options(mk_io PUBLIC -sASYNCIFY -sALLOW_MEMORY_GROWTH)
 elseif(UNIX AND NOT APPLE AND NOT ANDROID)
   find_package(ALSA REQUIRED)
   add_library(mk_io STATIC io/linux/mk_io_linux.cpp)
@@ -79,7 +83,7 @@ if(TARGET mk_io)
 endif()
 
 # ---------------------------------------------------------------- pipeline (io + codec, no UI)
-if(TARGET mk_io)
+if(TARGET mk_io AND NOT EMSCRIPTEN)  # Recorder / Player run on threads; the wasm build has none
   add_library(mk_pipeline STATIC pipeline/mk_pipeline.cpp)
   target_include_directories(mk_pipeline PUBLIC pipeline)
   target_link_libraries(mk_pipeline PUBLIC mk_io mk_codec)
@@ -104,6 +108,9 @@ elseif(IOS)
 elseif(APPLE)
   add_library(mk_ui STATIC ui/mac/mk_ui_mac.mm)
   target_link_libraries(mk_ui PUBLIC "-framework Cocoa" "-framework UniformTypeIdentifiers")
+elseif(EMSCRIPTEN)
+  add_library(mk_ui STATIC ui/wasm/mk_ui_wasm.cpp)
+  target_link_options(mk_ui PUBLIC -sASYNCIFY -sALLOW_MEMORY_GROWTH)
 elseif(UNIX AND NOT APPLE AND NOT ANDROID)
   find_package(X11 REQUIRED)
   add_library(mk_ui STATIC ui/linux/mk_ui_x11.cpp)
@@ -138,9 +145,14 @@ if(MK_BUILD_TESTS)
   target_link_libraries(codec_test mk_codec)
   mk_program(mk_mux examples/mk_mux.cpp)
   target_link_libraries(mk_mux mk_codec)
+  if(EMSCRIPTEN)  # run with node; NODERAWFS gives them the real file system
+    foreach(prog codec_test mk_mux)
+      target_link_options(${prog} PRIVATE -sNODERAWFS=1 -sALLOW_MEMORY_GROWTH -sSTACK_SIZE=1048576)
+    endforeach()
+  endif()
 endif()
 
-if(MK_BUILD_EXAMPLES AND TARGET mk_io)
+if(MK_BUILD_EXAMPLES AND TARGET mk_io AND NOT EMSCRIPTEN)  # console programs that wait on threads
   mk_program(mk_devices examples/mk_devices.cpp)
   target_link_libraries(mk_devices mk_io)
   mk_program(mk_record examples/mk_record.cpp)
@@ -151,7 +163,15 @@ if(MK_BUILD_EXAMPLES AND TARGET mk_io)
   target_link_libraries(audio_loopback_test mk_io)
 endif()
 if(MK_BUILD_EXAMPLES AND TARGET mk_io AND TARGET mk_ui)
-  if(ANDROID)
+  if(EMSCRIPTEN)
+    # mk_vision.html + .js + .wasm; serve the build directory over http://localhost (camera access needs
+    # a secure context) and open mk_vision.html. Browser frames are BGRA already, so no codec is linked.
+    mk_program(mk_vision examples/mk_vision.cpp)
+    target_link_libraries(mk_vision mk_io mk_ui)
+    set_target_properties(mk_vision PROPERTIES SUFFIX ".html")
+    target_link_options(mk_vision PRIVATE --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/tools/wasm_shell.html)
+    set_property(TARGET mk_vision APPEND PROPERTY LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tools/wasm_shell.html)
+  elseif(ANDROID)
     # NativeActivity loads a shared library and calls android_main() in it (mk_ui provides one,
     # which calls the program's main()). tools/build_apk.sh wraps the .so into an APK.
     foreach(prog mk_play mk_studio)
@@ -164,11 +184,13 @@ if(MK_BUILD_EXAMPLES AND TARGET mk_io AND TARGET mk_ui)
     target_link_libraries(mk_play mk_pipeline mk_ui)
     mk_program(mk_studio WIN32 examples/mk_studio.cpp)
     target_link_libraries(mk_studio mk_pipeline mk_ui)
+    mk_program(mk_vision WIN32 examples/mk_vision.cpp)
+    target_link_libraries(mk_vision mk_io mk_codec mk_ui)
     if(MSVC)  # GUI programs that still use main()
-      set_target_properties(mk_play mk_studio PROPERTIES LINK_FLAGS "/ENTRY:mainCRTStartup")
+      set_target_properties(mk_play mk_studio mk_vision PROPERTIES LINK_FLAGS "/ENTRY:mainCRTStartup")
     endif()
     if(IOS)  # .app bundles, so they can be installed on a device or a simulator
-      foreach(prog mk_play mk_studio)
+      foreach(prog mk_play mk_studio mk_vision)
         # an App ID takes only letters, digits, '-' and '.', so mk_studio becomes mkstudio.
         # Info.plist and the signed App ID must agree or installd rejects the app
         # with "The executable was signed with invalid entitlements".

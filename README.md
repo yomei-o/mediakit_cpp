@@ -1,7 +1,7 @@
 # mediakit_cpp
 
 カメラ・マイクの取り込み、H.264 / AAC のエンコード、MP4 の保存と読み込み、デコード、RGB 変換、画面表示を、
-Windows / Linux / macOS / Android / iOS で同じ C++ の API で使えるようにするライブラリ。
+Windows / Linux / macOS / Android / iOS / ブラウザ（wasm）で同じ C++ の API で使えるようにするライブラリ。
 
 ```
 io/        カメラ・マイク・スピーカー（OS ごとに実装、API は共通）
@@ -15,12 +15,12 @@ codec/ffmpeg/, codec/x264/, codec/openh264/  平坦化して同梱した第三�
 
 ## 対応状況
 
-| | Windows | Linux | macOS | Android | iOS |
-|---|---|---|---|---|---|
-| io（カメラ・マイク・スピーカー） | ✓ Media Foundation + WASAPI | ✓ V4L2 + ALSA（WSL2 で USB カメラとそのマイク、WSLg のスピーカーを確認） | ✓ AVFoundation + AudioQueue | ✓ Camera2 NDK + AAudio | ✓ AVFoundation + AudioQueue（iPhone 16 実機で確認） |
-| codec | ✓ | ✓（WSL で codec_test 通過） | ✓ VideoToolbox | ✓ MediaCodec | ✓ VideoToolbox |
-| ui | ✓ Win32 + GDI | ✓ X11（WSL2 の WSLg で確認） | ✓ AppKit | ✓ NativeActivity + ANativeWindow | ✓ UIKit |
-| pipeline | ✓ | ✓（疑似デバイスで録画→再生通過） | ✓ | ✓ | ✓（iPhone 16 実機でプレビュー→録画→再生） |
+| | Windows | Linux | macOS | Android | iOS | ブラウザ（wasm） |
+|---|---|---|---|---|---|---|
+| io（カメラ・マイク・スピーカー） | ✓ Media Foundation + WASAPI | ✓ V4L2 + ALSA（WSL2 で USB カメラとそのマイク、WSLg のスピーカーを確認） | ✓ AVFoundation + AudioQueue | ✓ Camera2 NDK + AAudio | ✓ AVFoundation + AudioQueue（iPhone 16 実機で確認） | ✓ カメラだけ（getUserMedia）。マイク・スピーカーは未対応 |
+| codec | ✓ | ✓（WSL で codec_test 通過） | ✓ VideoToolbox | ✓ MediaCodec | ✓ VideoToolbox | ✓（node で codec_test 通過、エンコードは `-DMK_WITH_OPENH264=ON`） |
+| ui | ✓ Win32 + GDI | ✓ X11（WSL2 の WSLg で確認） | ✓ AppKit | ✓ NativeActivity + ANativeWindow | ✓ UIKit | ✓ canvas + HTML のボタン |
+| pipeline | ✓ | ✓（疑似デバイスで録画→再生通過） | ✓ | ✓ | ✓（iPhone 16 実機でプレビュー→録画→再生） | ―（スレッドが要るので未対応） |
 
 ## 使い方
 
@@ -91,6 +91,7 @@ mk::FrameConverter conv;  conv.convert(frame, bgra, mk::PixelFormat::BGRA, 640, 
 | `mk_record out.mp4 [秒]` | コンソールで録画。`--input in.mp4` でファイル入力、`--h264 out.h264` で PacketSink の例、`--test` で疑似デバイス |
 | `mk_mux out.mp4 a.h264 [a.aac]` | H.264 と AAC を再エンコードなしで MP4 に（`mk_mux chicago.mp4 testdata/chicago.h264 testdata/chicago.aac`） |
 | `mk_devices [--grab]` | カメラ（対応モードも）・マイク・スピーカーの一覧 |
+| `mk_vision [--fps 2]` | 低い fps でフレームを解析するアプリの土台（車番認識など）。`analyze()` を本物の認識に差し替えて使う。ブラウザでも動く |
 
 ## ビルド
 
@@ -187,6 +188,29 @@ UIKit が `main()` とメインスレッドを持っていくので、`ui` 側�
 `UIApplicationMain` を回し、プログラムの `main()` は別スレッドで走らせる。そのために `mk_ui.h` が
 iOS のときだけ `main` を `mk_ios_main` に付け替えるので、サンプルのソースはそのまま。
 ファイル選択のダイアログは使っていないので、保存先は `Documents`、読み込みはそこの最新ファイル。
+
+ブラウザ（wasm、Emscripten。emsdk の環境で）：
+
+```sh
+emcmake cmake -S . -B build-wasm -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build-wasm --target mk_vision
+cd build-wasm && python -m http.server 8000      # http://localhost:8000/mk_vision.html を開く
+# 引数は URL で渡す：mk_vision.html?args=--test%20--fps%204
+cmake --build build-wasm --target mk_mux codec_test   # codec は node で動く（node build-wasm/mk_mux.js ...）
+```
+
+カメラは `https://` か `http://localhost` のページでないと使えない（ブラウザの決まり）。
+wasm 版はスレッドを使わない（SharedArrayBuffer や COOP/COEP のヘッダが要らない）代わりに、次の点が他の OS と違う。
+
+- `Camera::open()` はブラウザの許可ダイアログを待つ。そのためプログラムは `-sASYNCIFY` でリンクする（CMake が付ける）。
+- フレームは JS のタイマーが `CameraConfig::fps` どおりに `<video>` から取り出し、メインスレッドで
+  コールバックに渡す。届くのはプログラムが待っている間（`Window::run()` の中など）だけなので、
+  コールバックの処理が重いと画面も止まる（2 fps で数十 ms 程度なら問題ない）。
+- フレームは BGRA で届くので、FrameConverter（codec）をリンクしなくても使える。
+- `Window` は `id="mk-root"` の要素（`tools/wasm_shell.html`）に canvas とボタンを置く。
+  `choose_open_file()` はブラウザのファイル選択で選んだファイルを MEMFS の `/tmp` にコピーして返す。
+- Recorder / Player（pipeline）とマイク・スピーカーはまだ無い。H.264 のエンコーダは OS のものが無いので、
+  エンコードするなら `-DMK_WITH_OPENH264=ON`。
 
 ## ライセンス
 

@@ -1,0 +1,37 @@
+<!doctype html>
+<!-- mediakit page for wasm programs (emcc --shell-file). Program arguments come from the URL:
+     mk_vision.html?args=--test%20--fps%204   ->   argv = {"--test", "--fps", "4"} -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mediakit</title>
+<style>
+  :root { --bg: #f4f4f4; --fg: #111; --bar: #e0e0e0; --btn: #fafafa; --line: #888; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1b1b1b; --fg: #eee; --bar: #2c2c2c; --btn: #3a3a3a; --line: #666; }
+  }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--fg); font: 14px system-ui, sans-serif; }
+  .mk-window { max-width: 100%; display: inline-flex; flex-direction: column; border: 1px solid var(--line); }
+  .mk-bar { display: flex; flex-wrap: wrap; gap: 5px; padding: 5px; background: var(--bar); }
+  .mk-bar button { min-width: 110px; height: 30px; background: var(--btn); color: var(--fg); border: 1px solid var(--line); font: inherit; }
+  .mk-bar button:disabled { opacity: 0.5; }
+  .mk-video { display: block; width: 100%; height: auto; background: #000; }
+  .mk-status { padding: 4px 6px; background: var(--bar); min-height: 18px; white-space: pre-wrap; }
+  #mk-loading { margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<div id="mk-loading">読み込み中...</div>
+<div id="mk-root"></div>
+<script>
+  var Module = {
+    arguments: (new URLSearchParams(location.search).get('args') || '').split(' ').filter(Boolean),
+    print: function (s) { console.log(s); },
+    printErr: function (s) { console.error(s); },
+    onRuntimeInitialized: function () { document.getElementById('mk-loading').remove(); },
+  };
+</script>
+{{{ SCRIPT }}}
+</body>
+</html>
