@@ -1,4 +1,4 @@
-﻿# mediakit_cpp
+# mediakit_cpp
 
 カメラ・マイクの取り込み、H.264 / AAC のエンコード、MP4 の保存と読み込み、デコード、RGB 変換、画面表示を、
 Windows / Linux / macOS / Android / iOS / ブラウザ（wasm）で同じ C++ の API で使えるようにするライブラリ。
