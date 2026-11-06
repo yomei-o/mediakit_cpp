@@ -1,4 +1,4 @@
-# mediakit_cpp
+﻿# mediakit_cpp
 
 カメラ・マイクの取り込み、H.264 / AAC のエンコード、MP4 の保存と読み込み、デコード、RGB 変換、画面表示を、
 Windows / Linux / macOS / Android / iOS / ブラウザ（wasm）で同じ C++ の API で使えるようにするライブラリ。
@@ -17,7 +17,7 @@ codec/ffmpeg/, codec/x264/, codec/openh264/  平坦化して同梱した第三�
 
 | | Windows | Linux | macOS | Android | iOS | ブラウザ（wasm） |
 |---|---|---|---|---|---|---|
-| io（カメラ・マイク・スピーカー） | ✓ Media Foundation + WASAPI | ✓ V4L2 + ALSA（WSL2 で USB カメラとそのマイク、WSLg のスピーカーを確認） | ✓ AVFoundation + AudioQueue | ✓ Camera2 NDK + AAudio | ✓ AVFoundation + AudioQueue（iPhone 16 実機で確認） | ✓ カメラだけ（getUserMedia）。マイク・スピーカーは未対応 |
+| io（カメラ・マイク・スピーカー） | ✓ Media Foundation + WASAPI | ✓ V4L2 + ALSA（WSL2 で USB カメラとそのマイク、WSLg のスピーカーを確認） | ✓ AVFoundation + AudioQueue | ✓ Camera2 NDK + AAudio | ✓ AVFoundation + AudioQueue（iPhone 16 実機で確認） | ✓ カメラだけ（getUserMedia、Edge + USB カメラで確認）。マイク・スピーカーは未対応 |
 | codec | ✓ | ✓（WSL で codec_test 通過） | ✓ VideoToolbox | ✓ MediaCodec | ✓ VideoToolbox | ✓（node で codec_test 通過、エンコードは `-DMK_WITH_OPENH264=ON`） |
 | ui | ✓ Win32 + GDI | ✓ X11（WSL2 の WSLg で確認） | ✓ AppKit | ✓ NativeActivity + ANativeWindow | ✓ UIKit | ✓ canvas + HTML のボタン |
 | pipeline | ✓ | ✓（疑似デバイスで録画→再生通過） | ✓ | ✓ | ✓（iPhone 16 実機でプレビュー→録画→再生） | ―（スレッドが要るので未対応） |

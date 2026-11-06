@@ -138,7 +138,10 @@ iOS（iPhone 16 実機 + シミュレータ、arm64）
 - codec も wasm で通る：`mk_mux`（chicago 415 秒を 3.7 秒、30356 パケット）、OpenH264 入りの `codec_test`
   （PSNR 48.0 dB、AAC 440 Hz 成分比 1.000、RGB 変換の平均差 0.26）を node で。wasm は 13 MB。
 - 同じ変更で Windows（MSVC、`mk_vision --test` を画面で確認）と Linux（WSL2）もビルド。
-- 実カメラでの確認はまだ（この PC の C505 は usbipd に渡してあり、Windows のブラウザからは見えない）。
+- 実カメラ（C505、Edge）でも確認：1280x720 で解析 2.0 fps、処理 0.5 ms、映像が canvas に出て候補の枠も描けた。
+  C505 は WSL 用に usbipd に渡していたうえ、映像のインターフェースに Zadig 製の libusbK ドライバ（oem49.inf）が
+  入っていてブラウザから見えなかった。`usbipd unbind` と `pnputil /delete-driver oem49.inf /uninstall /force` で
+  Windows の usbvideo に戻した（WSL で使うときは `usbipd bind --force` → `attach` し直す）。
 
 OpenH264 2.6.0（SW エンコーダ、BSD 2-clause）
 - `codec/openh264/` に平坦化して同梱。エンコーダだけ（common + encoder/core + encoder/plus + processing）で
@@ -244,7 +247,7 @@ FFmpeg の設定ヘッダ（`ffmpeg_gen/config_ffmpeg.h`）の作り直し
 ## 次にやること
 
 1. Linux：V4L2 MJPEG・ALSA・X11 窓は WSL2 で確認済み。残りは X11 の日本語（Xft）。Linux の HW エンコード（VA-API）
-2. wasm：実カメラで確認（スマホのブラウザも）、マイク・スピーカー（WebAudio）、重い解析は Web Worker に逃がす
+2. wasm：スマホのブラウザで確認（https が要る）、マイク・スピーカー（WebAudio）、重い解析は Web Worker に逃がす
 3. iOS 実機：動くようになったので、あとは数字を取る。シミュレータの VideoToolbox は
    ソフトウェアで 720p30 の実時間エンコードに追いつかなかったので、実機で
    プレビューの fps・落ちフレーム・エンコーダ名を `mk_studio` のステータス行で測り直す。
