@@ -223,6 +223,7 @@ wasm 版はスレッドを使わない（SharedArrayBuffer や COOP/COEP のヘ�
   コールバックで動く。`VideoEncoder::open` / `flush`、`VideoDecoder::flush`、`Recorder::start_recording` /
   `stop_recording` / `close` はブラウザを待つので、カメラ・マイクのコールバックの中ではなく、`main`・
   ボタン・タイマーから呼ぶ。待たずに残りを出す `VideoDecoder::drain()` もある（他の OS では `flush()` と同じ）。
+  デコーダに何も渡さずに、出てきたフレームだけを受け取る `VideoDecoder::poll()` もある（他の OS では何もしない）。
 - ファイルはメモリ上（MEMFS）に書かれる。`choose_save_file()` のパスに録画したら、
   `mk::finish_saved_file(path)` でダウンロードとしてユーザーに渡す（他の OS では何もしない）。
 - Recorder のプレビューは、カメラの BGRA を縮小せずにそのまま渡す（`preview_width` は使わない。

@@ -1013,6 +1013,13 @@ bool VideoDecoder::drain(std::vector<VideoFrame>& out) {
     return true;
 }
 
+void VideoDecoder::poll(std::vector<VideoFrame>& out) {
+#ifdef __EMSCRIPTEN__
+    if (p_->wc) p_->receive_webcodecs(out);
+#endif
+    (void)out;
+}
+
 void VideoDecoder::close() { p_->close(); }
 std::string VideoDecoder::name() const { return p_->name; }
 const std::string& VideoDecoder::error() const { return p_->err; }

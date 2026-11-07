@@ -81,6 +81,11 @@ public:
     // flush() that does not wait: the frames ready so far, true once all are out (call again until then).
     // For callers that must not block, such as the browser build's pipelines; elsewhere it is flush().
     bool drain(std::vector<VideoFrame>& out);
+    // The frames that have come out since the last call, without giving the decoder anything.
+    // For the browser build, whose decoder (WebCodecs) hands frames back asynchronously: a caller
+    // that has fed enough packets can wait for frames without flushing. Elsewhere decode() already
+    // returns every frame that is ready, so this has nothing to add.
+    void poll(std::vector<VideoFrame>& out);
     void close();
     const std::string& error() const;
     std::string name() const;  // "software" or the hardware API in use ("d3d11va", "webcodecs", ...)
