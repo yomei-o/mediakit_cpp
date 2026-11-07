@@ -22,6 +22,9 @@ extern "C" {
 #include "libavcodec/jni_avcodec.h"
 #endif
 }
+#ifdef __EMSCRIPTEN__
+#include "wasm/mk_webcodecs.h"
+#endif
 
 namespace mk {
 
@@ -254,12 +257,65 @@ struct VideoEncoder::Impl {
     std::string name, err;
     bool force_key = false;
     int64_t last_pts = INT64_MIN;
+    int wc = 0;          // browser: WebCodecs encoder id (0: FFmpeg)
+    int64_t frames = 0;  // given to the WebCodecs encoder (it does not place keyframes by itself)
 
     void close() {
         avcodec_free_context(&ctx);
         av_frame_free(&frame);
         av_packet_free(&pkt);
+#ifdef __EMSCRIPTEN__
+        if (wc) mk_wc_close(wc), wc = 0;
+#endif
     }
+
+    // Keyframes carry SPS/PPS: learn them, or put them in front when the encoder keeps them aside.
+    void add_packet(Packet&& p, std::vector<Packet>& out) {
+        if (p.keyframe) {
+            std::vector<uint8_t> ps = h264_extract_parameter_sets(p.data.data(), p.data.size());
+            if (ps.empty() && !extradata.empty()) {
+                // Some encoders keep SPS/PPS only in extradata: put them in front of every keyframe
+                // so each packet stream is decodable on its own (streaming, file cut points).
+                p.data.insert(p.data.begin(), extradata.begin(), extradata.end());
+            } else if (extradata.empty()) {
+                extradata = ps;
+            }
+        }
+        out.push_back(std::move(p));
+    }
+
+#ifdef __EMSCRIPTEN__
+    bool try_open_webcodecs() {
+        static int next_id = 1;
+        wc = next_id++;
+        if (!mk_wc_venc_open(wc, cfg.width, cfg.height, cfg.fps, cfg.bitrate, cfg.hardware ? 1 : 0)) {
+            err = "webcodecs: " + take_js(mk_wc_error(wc));
+            mk_wc_close(wc), wc = 0;
+            return false;
+        }
+        name = take_js(mk_wc_name(wc));
+        frames = 0;
+        return true;
+    }
+    static std::string take_js(char* s) {
+        std::string r = s ? s : "";
+        free(s);
+        return r;
+    }
+    void receive_webcodecs(std::vector<Packet>& out) {
+        int size = 0, key = 0;
+        double ts = 0;
+        while (uint8_t* d = mk_wc_venc_next(wc, &size, &ts, &key)) {
+            Packet p;
+            p.type = MediaType::Video;
+            p.data.assign(d, d + size);
+            free(d);
+            p.pts_us = p.dts_us = (int64_t)ts;  // no B-frames in realtime mode
+            p.keyframe = key || h264_is_keyframe(p.data.data(), p.data.size());
+            add_packet(std::move(p), out);
+        }
+    }
+#endif
 
     bool try_open(const char* enc_name) {
         const AVCodec* codec = avcodec_find_encoder_by_name(enc_name);
@@ -326,18 +382,8 @@ struct VideoEncoder::Impl {
             p.pts_us = av_rescale_q(pkt->pts, ctx->time_base, kUs);
             p.dts_us = pkt->dts == AV_NOPTS_VALUE ? p.pts_us : av_rescale_q(pkt->dts, ctx->time_base, kUs);
             p.keyframe = (pkt->flags & AV_PKT_FLAG_KEY) || h264_is_keyframe(p.data.data(), p.data.size());
-            if (p.keyframe) {
-                std::vector<uint8_t> ps = h264_extract_parameter_sets(p.data.data(), p.data.size());
-                if (ps.empty() && !extradata.empty()) {
-                    // Some encoders keep SPS/PPS only in extradata: put them in front of every keyframe
-                    // so each packet stream is decodable on its own (streaming, file cut points).
-                    p.data.insert(p.data.begin(), extradata.begin(), extradata.end());
-                } else if (extradata.empty()) {
-                    extradata = ps;
-                }
-            }
             av_packet_unref(pkt);
-            out.push_back(std::move(p));
+            add_packet(std::move(p), out);
         }
     }
 };
@@ -360,6 +406,8 @@ bool VideoEncoder::open(const VideoEncoderConfig& cfg) {
         names = {"h264_mediacodec"};
 #elif defined(__APPLE__)
         names = {"h264_videotoolbox"};
+#elif defined(__EMSCRIPTEN__)
+        names = {"webcodecs"};  // the browser's encoder (hardware when it has one)
 #else
         names = {"h264_vaapi", "h264_v4l2m2m"};
 #endif
@@ -370,6 +418,14 @@ bool VideoEncoder::open(const VideoEncoderConfig& cfg) {
     }
     std::string errs;
     for (auto& n : names) {
+#ifdef __EMSCRIPTEN__
+        if (n == "webcodecs") {
+            if (p_->try_open_webcodecs()) return true;
+            errs += p_->err + "; ";
+            p_->err.clear();
+            continue;
+        }
+#endif
         if (p_->try_open(n.c_str())) break;
         if (n == "h264_mf" && cfg.hardware) {  // no hardware MFT on this machine: Microsoft's software one
             p_->cfg.hardware = false;
@@ -394,6 +450,41 @@ bool VideoEncoder::open(const VideoEncoderConfig& cfg) {
 }
 
 bool VideoEncoder::encode(const VideoFrame& in, std::vector<Packet>& out) {
+#ifdef __EMSCRIPTEN__
+    if (p_->wc) {
+        Impl& s = *p_;
+        s.err.clear();
+        const VideoFrame* src = &in;
+        const bool direct = in.width == s.cfg.width && in.height == s.cfg.height &&
+                            (in.format == PixelFormat::I420 || in.format == PixelFormat::NV12 || in.format == PixelFormat::BGRA);
+        if (!direct) {
+            if (!s.conv.convert(in, s.tmp, PixelFormat::I420, s.cfg.width, s.cfg.height)) {
+                s.err = "pixel conversion failed";
+                return false;
+            }
+            src = &s.tmp;
+        }
+        int64_t pts = in.pts_us;
+        if (pts <= s.last_pts) pts = s.last_pts + 1;
+        s.last_pts = pts;
+        const bool key = s.force_key || s.frames % std::max(1, s.cfg.gop) == 0;
+        const int fmt = src->format == PixelFormat::I420 ? 0 : src->format == PixelFormat::NV12 ? 1 : 2;
+        const int r = mk_wc_venc_encode(s.wc, fmt, src->width, src->height, src->data[0], src->stride[0], src->data[1], src->stride[1],
+                                        src->data[2], src->stride[2], (double)pts, key ? 1 : 0);
+        if (r < 0) {
+            s.err = "webcodecs: " + Impl::take_js(mk_wc_error(s.wc));
+            return false;
+        }
+        if (r == 0) {
+            s.err = "encoder stayed full; frame dropped";  // as below: the caller keeps going
+        } else {
+            ++s.frames;
+            if (key) s.force_key = false;
+        }
+        s.receive_webcodecs(out);
+        return true;
+    }
+#endif
     if (!p_->ctx) return false;
     PixelFormat want;
     from_av(p_->ctx->pix_fmt, want);
@@ -442,6 +533,14 @@ bool VideoEncoder::encode(const VideoFrame& in, std::vector<Packet>& out) {
 }
 
 bool VideoEncoder::flush(std::vector<Packet>& out) {
+#ifdef __EMSCRIPTEN__
+    if (p_->wc) {  // waits for the browser (ASYNCIFY): call it from the program's flow, not from a device callback
+        const bool ok = mk_wc_venc_flush(p_->wc) != 0;
+        if (!ok) p_->err = "webcodecs: " + Impl::take_js(mk_wc_error(p_->wc));
+        p_->receive_webcodecs(out);
+        return ok;
+    }
+#endif
     if (!p_->ctx) return false;
     avcodec_send_frame(p_->ctx, nullptr);
     return p_->receive(out);
@@ -625,6 +724,8 @@ struct VideoDecoder::Impl {
     AVBufferRef* hw_dev = nullptr;
     AVPixelFormat hw_fmt = AV_PIX_FMT_NONE;
     std::string err, name;
+    int wc = 0;               // browser: WebCodecs decoder id (0: FFmpeg)
+    bool wait_key = false;    // switched to software mid-stream: skip to the next keyframe
     void close() {
         avcodec_free_context(&ctx);
         av_packet_free(&pkt);
@@ -632,7 +733,58 @@ struct VideoDecoder::Impl {
         av_frame_free(&sw);
         av_buffer_unref(&hw_dev);
         hw_fmt = AV_PIX_FMT_NONE;
+#ifdef __EMSCRIPTEN__
+        if (wc) mk_wc_close(wc), wc = 0;
+#endif
     }
+
+#ifdef __EMSCRIPTEN__
+    // "avc1.PPCCLL" from the SPS of a keyframe (profile, constraint flags, level).
+    static std::string codec_string(const Packet& in) {
+        char b[32] = "avc1.42e01f";
+        for_each_nal(in.data.data(), in.data.size(), [&](const uint8_t* nal, size_t n) {
+            if (n >= 4 && (nal[0] & 0x1f) == 7) std::snprintf(b, sizeof(b), "avc1.%02x%02x%02x", nal[1], nal[2], nal[3]);
+        });
+        return b;
+    }
+    void receive_webcodecs(std::vector<VideoFrame>& out) {
+        int info[9];
+        double ts = 0;
+        while (uint8_t* d = mk_wc_vdec_next(wc, info, &ts)) {
+            const int fmt = info[0], w = info[1], h = info[2], cw = (w + 1) / 2, ch = (h + 1) / 2;
+            VideoFrame vf;
+            if (fmt == 0) {
+                vf.alloc(w, h, PixelFormat::I420);
+                vf.copy_plane(0, d + info[3], info[4], w, h);
+                vf.copy_plane(1, d + info[5], info[6], cw, ch);
+                vf.copy_plane(2, d + info[7], info[8], cw, ch);
+            } else if (fmt == 1) {
+                vf.alloc(w, h, PixelFormat::NV12);
+                vf.copy_plane(0, d + info[3], info[4], w, h);
+                vf.copy_plane(1, d + info[5], info[6], cw * 2, ch);
+            } else {  // RGBA -> BGRA
+                vf.alloc(w, h, PixelFormat::BGRA);
+                for (int y = 0; y < h; ++y) {
+                    const uint8_t* s = d + info[3] + (size_t)y * info[4];
+                    uint8_t* t = vf.data[0] + (size_t)y * vf.stride[0];
+                    for (int x = 0; x < w; ++x, s += 4, t += 4) t[0] = s[2], t[1] = s[1], t[2] = s[0], t[3] = 255;
+                }
+            }
+            free(d);
+            vf.pts_us = (int64_t)ts;
+            out.push_back(std::move(vf));
+        }
+    }
+    // The browser's decoder failed (e.g. a profile it does not take): go on in software from the next keyframe.
+    void fall_back_to_software() {
+        char* e = mk_wc_error(wc);
+        err = std::string("webcodecs: ") + (e ? e : "") + " (decoding in software)";
+        free(e);
+        mk_wc_close(wc), wc = 0;
+        name = "software";
+        wait_key = true;
+    }
+#endif
     // Offered formats: take the hardware one; else the first software one (the decoder fell back).
     static AVPixelFormat pick_format(AVCodecContext* c, const AVPixelFormat* fmts) {
         Impl* s = (Impl*)c->opaque;
@@ -784,10 +936,31 @@ bool VideoDecoder::open(bool hardware) {
     }
     p_->pkt = av_packet_alloc();
     p_->frame = av_frame_alloc();
+#ifdef __EMSCRIPTEN__
+    // the browser's decoder (hardware when it has one); the software one above stays as the fallback
+    static int next_wc = 1000000;  // apart from the encoders' ids
+    p_->wait_key = false;
+    if (hardware && mk_wc_vdec_open(next_wc)) p_->wc = next_wc++, p_->name = "webcodecs";
+#endif
     return true;
 }
 
 bool VideoDecoder::decode(const Packet& in, std::vector<VideoFrame>& out) {
+#ifdef __EMSCRIPTEN__
+    if (p_->wc) {
+        const std::string codec = in.keyframe ? Impl::codec_string(in) : "";
+        if (mk_wc_vdec_decode(p_->wc, in.data.data(), (int)in.data.size(), (double)in.pts_us, in.keyframe ? 1 : 0, codec.c_str())) {
+            p_->receive_webcodecs(out);
+            return true;
+        }
+        p_->receive_webcodecs(out);
+        p_->fall_back_to_software();
+    }
+    if (p_->wait_key) {
+        if (!in.keyframe) return true;
+        p_->wait_key = false;
+    }
+#endif
     if (!p_->ctx) return false;
     if (p_->want_mediacodec && in.keyframe) p_->try_mediacodec(in);
     av_new_packet(p_->pkt, (int)in.data.size());
@@ -814,11 +987,30 @@ bool VideoDecoder::decode(const Packet& in, std::vector<VideoFrame>& out) {
 }
 
 bool VideoDecoder::flush(std::vector<VideoFrame>& out) {
+#ifdef __EMSCRIPTEN__
+    if (p_->wc) {  // waits for the browser (ASYNCIFY): call it from the program's flow, not from a device callback
+        mk_wc_vdec_flush(p_->wc);
+        p_->receive_webcodecs(out);
+        return true;
+    }
+#endif
     if (!p_->ctx) return false;
     avcodec_send_packet(p_->ctx, nullptr);
     bool ok = p_->receive(out);
     avcodec_flush_buffers(p_->ctx);
     return ok;
+}
+
+bool VideoDecoder::drain(std::vector<VideoFrame>& out) {
+#ifdef __EMSCRIPTEN__
+    if (p_->wc) {
+        const bool done = mk_wc_vdec_drain(p_->wc) != 0;
+        p_->receive_webcodecs(out);
+        return done;
+    }
+#endif
+    flush(out);
+    return true;
 }
 
 void VideoDecoder::close() { p_->close(); }

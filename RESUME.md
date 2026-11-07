@@ -154,6 +154,30 @@ iOS（iPhone 16 実機 + シミュレータ、arm64）
   スピーカーの時計は 1.52 s 後に 1.47 s 再生済み。Windows ネイティブも同じテストで ALL OK（+45.2 dB）。
   使い捨てのテストで "test" マイク（16 kHz モノラルで 2 秒 32000 サンプル）、44.1→48 kHz のリサンプル、
   `clear()` 後の played -1 / queued 0 も確認。
+- 録画・再生（2026-11-07）：codec の H.264 は WebCodecs（`codec/wasm/mk_webcodecs.h`、EM_JS）。エンコーダは
+  isConfigSupported でハードウェア→何でも、Baseline→Main→High の順に試し、レベルはサイズと fps から選ぶ。
+  出力は Annex-B（`avc: {format: "annexb"}`）、キーフレームは gop ごとに C++ が指定（WebCodecs は勝手に
+  入れない）。encodeQueueSize が 4 を超えたら落とす（FFmpeg 側と同じく err に書いて true を返す）。
+  デコーダは最初のキーフレームの SPS から `avc1.PPCCLL` を作って configure。出力は copyTo で I420 / NV12
+  （それ以外の形式は OffscreenCanvas に描いて RGBA）。失敗したら次のキーフレームから FFmpeg のソフトへ。
+  flush は Promise を待つので ASYNCIFY（mk_codec に -sASYNCIFY を付けた）。待てない pipeline 用に
+  `VideoDecoder::drain()` を追加（他の OS では flush と同じ）。
+- pipeline は `pipeline/mk_pipeline_wasm.cpp`（API は同じ）。スレッドの代わりに setInterval(5 ms) の
+  「pump」と、カメラ・マイクのコールバックの中で処理する。Recorder はコールバックの中でそのままエンコード
+  （WebCodecs はコピーして積むだけ）。Player は 1 回 12 ms までデコードを進め、表示は 1 tick に 1 枚。
+  直したこと：(1) デコード済みを全部 BGRA に変換していたので 1 回 134 ms 止まり、序盤に 4〜6 枚飛んだ →
+  表示する 1 枚だけ変換（83/90 → 90/90）。(2) スピーカーは最初のフレームが揃ってから鳴らす。
+  (3) Recorder のプレビューを 960 幅に縮小していたので実カメラで 10〜13 fps に落ちた → BGRA をそのまま
+  渡す（canvas が縮小する）と 30 fps。
+- `choose_open_file()`：クリック直後でないとブラウザがファイル選択を開かない（mk_play.html を開いた
+  直後など）。その時は「ファイルを開く…」ボタンを出す。`mk::finish_saved_file()`（mk_ui.h、他の OS は
+  inline で何もしない）で MEMFS のファイルをダウンロードさせる。mk_studio は停止後に呼ぶ。
+- テスト：`record_play_test`（新規、全 OS 共通：疑似カメラ 640x480＋疑似マイクで 3 秒録画→Mp4Reader で
+  検査→Player で再生）。ブラウザ（Edge ヘッドレス）：webcodecs で 89〜90 フレーム、落ち 0、再生 89〜90/90、
+  ずれ 20〜36 ms。Windows ネイティブ：h264_mf + d3d11va で 90/90（最初の 1 回だけ再生が 6.4 s かかって
+  FAIL、以後 6 回続けて OK。原因は未調査）。mk_studio.html を puppeteer で操作：C505 1280x720 で
+  プレビュー 30.5 fps、3.6 s で 111 フレーム落ち 0（webcodecs avc1.42e01f hw）→停止でダウンロード（1.0 MB）
+  →mk_play.html で再生、同じファイルを Windows の player_test でも 125/126 フレーム ALL OK。
 
 OpenH264 2.6.0（SW エンコーダ、BSD 2-clause）
 - `codec/openh264/` に平坦化して同梱。エンコーダだけ（common + encoder/core + encoder/plus + processing）で
@@ -259,7 +283,8 @@ FFmpeg の設定ヘッダ（`ffmpeg_gen/config_ffmpeg.h`）の作り直し
 ## 次にやること
 
 1. Linux：V4L2 MJPEG・ALSA・X11 窓は WSL2 で確認済み。残りは X11 の日本語（Xft）。Linux の HW エンコード（VA-API）
-2. wasm：スマホのブラウザで確認（https が要る）、重い解析は Web Worker に逃がす
+2. wasm：スマホのブラウザで確認（https が要る）、重い解析は Web Worker に逃がす、
+   長い録画は MEMFS（メモリ）に溜まるので、必要なら File System Access API などに書き出す
 3. iOS 実機：動くようになったので、あとは数字を取る。シミュレータの VideoToolbox は
    ソフトウェアで 720p30 の実時間エンコードに追いつかなかったので、実機で
    プレビューの fps・落ちフレーム・エンコーダ名を `mk_studio` のステータス行で測り直す。

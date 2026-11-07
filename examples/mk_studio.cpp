@@ -84,6 +84,7 @@ int main(int argc, char** argv) {
         if (!rec) return;
         if (rec->recording()) {
             rec->stop_recording();
+            mk::finish_saved_file(last_file);  // the browser: download it
             win.set_button_text(btn_rec, "● 録画");
             note = "保存しました: " + last_file + (rec->error().empty() ? "" : "  (" + rec->error() + ")");
         } else {

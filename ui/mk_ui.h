@@ -44,4 +44,12 @@ private:
     std::unique_ptr<Impl> p_;
 };
 
+// Call after writing a file at a path from choose_save_file(). In the browser the file is only in memory
+// (MEMFS): this hands it to the user as a download. Elsewhere it is already on disk: nothing to do.
+#ifdef __EMSCRIPTEN__
+void finish_saved_file(const std::string& path);
+#else
+inline void finish_saved_file(const std::string&) {}
+#endif
+
 }  // namespace mk

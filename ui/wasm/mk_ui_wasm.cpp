@@ -87,6 +87,15 @@ EM_ASYNC_JS(char*, mk_js_ui_open_file, (const char* accept), {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = UTF8ToString(accept);
+    if (navigator.userActivation && !navigator.userActivation.isActive) {
+        /* the browser opens a file dialog only right after a click: ask for one first */
+        const pick = document.createElement("button");
+        pick.className = "mk-pick";
+        pick.textContent = "ファイルを開く…";
+        (document.querySelector(".mk-bar") || document.getElementById("mk-root") || document.body).appendChild(pick);
+        await new Promise(r => pick.addEventListener("click", r, { once: true }));
+        pick.remove();
+    }
     const file = await new Promise(resolve => {
         input.onchange = () => resolve(input.files[0] || null);
         input.oncancel = () => resolve(null);
@@ -98,6 +107,26 @@ EM_ASYNC_JS(char*, mk_js_ui_open_file, (const char* accept), {
     const path = '/tmp/' + file.name.split('/').join('_');  // no backslashes: this is a C string
     FS.writeFile(path, data);
     return stringToNewUTF8(path);
+});
+
+// Offers a MEMFS file as a download (the browser saves it in the user's download folder).
+EM_JS(void, mk_js_ui_download, (const char* path), {
+    const p = UTF8ToString(path);
+    let data;
+    try {
+        data = FS.readFile(p);
+    } catch (e) {
+        console.error("mediakit: no file " + p);
+        return;
+    }
+    const type = p.endsWith(".mp4") ? "video/mp4" : "application/octet-stream";
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([data], { type: type }));
+    a.download = p.split("/").pop();
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 60000);
 });
 
 namespace mk {
@@ -196,8 +225,11 @@ std::string Window::choose_open_file(const std::string& filter_name, const std::
     return path;
 }
 
-// The browser cannot write to the user's disk without a download; the file goes to MEMFS.
+// The browser cannot write to the user's disk without a download; the file goes to MEMFS
+// (finish_saved_file() downloads it once written).
 std::string Window::choose_save_file(const std::string& default_name) { return "/tmp/" + default_name; }
+
+void finish_saved_file(const std::string& path) { mk_js_ui_download(path.c_str()); }
 
 void Window::post(std::function<void()> fn) { p_->posted.push_back(std::move(fn)); }
 

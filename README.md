@@ -18,9 +18,9 @@ codec/ffmpeg/, codec/x264/, codec/openh264/  平坦化して同梱した第三�
 | | Windows | Linux | macOS | Android | iOS | ブラウザ（wasm） |
 |---|---|---|---|---|---|---|
 | io（カメラ・マイク・スピーカー） | ✓ Media Foundation + WASAPI | ✓ V4L2 + ALSA（WSL2 で USB カメラとそのマイク、WSLg のスピーカーを確認） | ✓ AVFoundation + AudioQueue | ✓ Camera2 NDK + AAudio | ✓ AVFoundation + AudioQueue（iPhone 16 実機で確認） | ✓ getUserMedia + Web Audio（Edge + USB カメラ・そのマイク・PC のスピーカーで確認） |
-| codec | ✓ | ✓（WSL で codec_test 通過） | ✓ VideoToolbox | ✓ MediaCodec | ✓ VideoToolbox | ✓（node で codec_test 通過、エンコードは `-DMK_WITH_OPENH264=ON`） |
+| codec | ✓ | ✓（WSL で codec_test 通過） | ✓ VideoToolbox | ✓ MediaCodec | ✓ VideoToolbox | ✓ WebCodecs（H.264 のエンコード・デコード。node では codec_test 通過） |
 | ui | ✓ Win32 + GDI | ✓ X11（WSL2 の WSLg で確認） | ✓ AppKit | ✓ NativeActivity + ANativeWindow | ✓ UIKit | ✓ canvas + HTML のボタン |
-| pipeline | ✓ | ✓（疑似デバイスで録画→再生通過） | ✓ | ✓ | ✓（iPhone 16 実機でプレビュー→録画→再生） | ―（スレッドが要るので未対応） |
+| pipeline | ✓ | ✓（疑似デバイスで録画→再生通過） | ✓ | ✓ | ✓（iPhone 16 実機でプレビュー→録画→再生） | ✓ スレッド無しの版（Edge + USB カメラで 720p30 録画→ダウンロード→再生） |
 
 ## 使い方
 
@@ -113,6 +113,7 @@ Linux（`libx11-dev libasound2-dev` が必要。OS の H.264 エンコーダは�
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DMK_WITH_X264=ON
 cmake --build build -j
 build/audio_loopback_test       # 既定のスピーカーで 777 Hz を鳴らし、既定のマイクで聞こえるかを検査（実機が要る）
+build/record_play_test          # 疑似カメラ＋疑似マイクで 3 秒録画→ファイル検査→再生（デバイス不要、全 OS 共通）
 ```
 
 macOS（Xcode のコマンドラインツールだけで足りる）：
@@ -193,10 +194,11 @@ iOS のときだけ `main` を `mk_ios_main` に付け替えるので、サン�
 
 ```sh
 emcmake cmake -S . -B build-wasm -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build-wasm --target mk_vision audio_loopback_test
+cmake --build build-wasm --target mk_vision mk_studio mk_play audio_loopback_test record_play_test
 cd build-wasm && python -m http.server 8000      # http://localhost:8000/mk_vision.html を開く
 # 引数は URL で渡す：mk_vision.html?args=--test%20--fps%204
-# audio_loopback_test.html：スピーカー→マイクのテスト（ページをクリックすると始まる）
+# mk_studio.html：録画すると MP4 がダウンロードされる。mk_play.html：選んだ MP4 を再生
+# audio_loopback_test.html / record_play_test.html：テスト（ページをクリックすると始まる）
 cmake --build build-wasm --target mk_mux codec_test   # codec は node で動く（node build-wasm/mk_mux.js ...）
 ```
 
@@ -214,8 +216,19 @@ wasm 版はスレッドを使わない（SharedArrayBuffer や COOP/COEP のヘ�
   スピーカーの出力先を選ぶ（`device_id`）のは `setSinkId` のあるブラウザ（Chrome / Edge）だけ。
 - `Window` は `id="mk-root"` の要素（`tools/wasm_shell.html`）に canvas とボタンを置く。
   `choose_open_file()` はブラウザのファイル選択で選んだファイルを MEMFS の `/tmp` にコピーして返す。
-- Recorder / Player（pipeline）はまだ無い。H.264 のエンコーダは OS のものが無いので、
-  エンコードするなら `-DMK_WITH_OPENH264=ON`。
+- H.264 はブラウザの WebCodecs でエンコード・デコードする（ハードウェアがあればそれを使う。Chrome / Edge /
+  Safari の新しい版）。WebCodecs の無い環境（node など）は FFmpeg のソフトデコーダ、エンコードは
+  `-DMK_WITH_OPENH264=ON` を付けたときの OpenH264 になる。
+- Recorder / Player / FileSource は他の OS と同じ API で、スレッドの代わりに JS のタイマーとカメラ・マイクの
+  コールバックで動く。`VideoEncoder::open` / `flush`、`VideoDecoder::flush`、`Recorder::start_recording` /
+  `stop_recording` / `close` はブラウザを待つので、カメラ・マイクのコールバックの中ではなく、`main`・
+  ボタン・タイマーから呼ぶ。待たずに残りを出す `VideoDecoder::drain()` もある（他の OS では `flush()` と同じ）。
+- ファイルはメモリ上（MEMFS）に書かれる。`choose_save_file()` のパスに録画したら、
+  `mk::finish_saved_file(path)` でダウンロードとしてユーザーに渡す（他の OS では何もしない）。
+- Recorder のプレビューは、カメラの BGRA を縮小せずにそのまま渡す（`preview_width` は使わない。
+  canvas が拡大縮小するので、メインスレッドで縮小しないほうが速い）。
+- `choose_open_file()` は、直前にクリックが無いと（ブラウザの決まりで）ファイル選択を開けないので、
+  「ファイルを開く…」ボタンを出してクリックを待つ。
 
 ## ライセンス
 

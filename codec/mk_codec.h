@@ -1,7 +1,9 @@
 // mediakit codec layer: H.264 / AAC encode and decode, MP4 write and read, pixel conversion.
 // The same code on every OS (FFmpeg underneath); only the H.264 encoder backend differs:
 //   Windows h264_mf (Media Foundation), Android h264_mediacodec, macOS/iOS h264_videotoolbox,
-//   Linux h264_vaapi / libopenh264.  "auto" picks the first one that opens.
+//   Linux h264_vaapi / libopenh264, browser (wasm) WebCodecs.  "auto" picks the first one that opens.
+// In the browser, VideoEncoder::open / flush and VideoDecoder::flush wait for the browser (ASYNCIFY):
+// call them from the program's own flow (main, button, timer), not from a camera / microphone callback.
 #pragma once
 #include <memory>
 #include <string>
@@ -76,9 +78,12 @@ public:
     bool open(bool hardware = false);
     bool decode(const Packet& pkt, std::vector<VideoFrame>& out);  // out: I420 (software) or NV12 (hardware)
     bool flush(std::vector<VideoFrame>& out);
+    // flush() that does not wait: the frames ready so far, true once all are out (call again until then).
+    // For callers that must not block, such as the browser build's pipelines; elsewhere it is flush().
+    bool drain(std::vector<VideoFrame>& out);
     void close();
     const std::string& error() const;
-    std::string name() const;  // "software" or the hardware API in use ("d3d11va", ...)
+    std::string name() const;  // "software" or the hardware API in use ("d3d11va", "webcodecs", ...)
     struct Impl;
 private:
     std::unique_ptr<Impl> p_;
